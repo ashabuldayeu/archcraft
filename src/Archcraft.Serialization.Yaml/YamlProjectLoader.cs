@@ -29,6 +29,7 @@ public sealed class YamlProjectLoader : IProjectLoader
 
     private static ProjectDefinition MapToProjectDefinition(ProjectFileModel model)
     {
+        List<AdapterDefinition> adapters = model.Adapters.Select(MapAdapter).ToList();
         List<ServiceDefinition> services = model.Services.Select(MapService).ToList();
         List<ConnectionDefinition> connections = model.Connections.Select(MapConnection).ToList();
         List<ScenarioDefinition> scenarios = model.Scenarios.Select(MapScenario).ToList();
@@ -36,11 +37,21 @@ public sealed class YamlProjectLoader : IProjectLoader
         return new ProjectDefinition
         {
             Name = model.Name,
+            Adapters = adapters,
             Services = services,
             Topology = new ServiceTopology(connections),
             Scenarios = scenarios
         };
     }
+
+    private static AdapterDefinition MapAdapter(AdapterModel model) =>
+        new()
+        {
+            Name = model.Name,
+            Image = model.Image,
+            Port = new ServicePort(model.Port),
+            Technology = model.Technology
+        };
 
     private static ServiceDefinition MapService(ServiceModel model) =>
         new()
@@ -53,8 +64,29 @@ public sealed class YamlProjectLoader : IProjectLoader
             {
                 Path = model.Readiness.Path,
                 Timeout = Duration.Parse(model.Readiness.Timeout)
-            }
+            },
+            SyntheticAdapters = model.Synthetic?.Adapters ?? [],
+            SyntheticOperations = model.Synthetic is null
+                ? []
+                : ExtractOperations(model.Synthetic.Endpoints).Distinct().ToList()
         };
+
+    private static IEnumerable<string> ExtractOperations(IEnumerable<SyntheticEndpointModel> endpoints)
+    {
+        foreach (SyntheticEndpointModel endpoint in endpoints)
+            foreach (string op in ExtractOperationsFromSteps(endpoint.Pipeline))
+                yield return op;
+    }
+
+    private static IEnumerable<string> ExtractOperationsFromSteps(IEnumerable<SyntheticPipelineStepModel> steps)
+    {
+        foreach (SyntheticPipelineStepModel step in steps)
+        {
+            yield return step.Operation;
+            foreach (string op in ExtractOperationsFromSteps(step.Fallback)) yield return op;
+            foreach (string op in ExtractOperationsFromSteps(step.Children)) yield return op;
+        }
+    }
 
     private static ConnectionDefinition MapConnection(ConnectionModel model) =>
         new()

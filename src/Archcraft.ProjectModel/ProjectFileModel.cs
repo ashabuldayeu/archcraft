@@ -13,6 +13,9 @@ public sealed class ProjectFileModel
     [YamlMember(Alias = "connections")]
     public List<ConnectionModel> Connections { get; set; } = [];
 
+    [YamlMember(Alias = "adapters")]
+    public List<AdapterModel> Adapters { get; set; } = [];
+
     [YamlMember(Alias = "scenarios")]
     public List<ScenarioModel> Scenarios { get; set; } = [];
 }

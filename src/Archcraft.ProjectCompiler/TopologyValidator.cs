@@ -5,10 +5,46 @@ namespace Archcraft.ProjectCompiler;
 
 public sealed class TopologyValidator : ITopologyValidator
 {
-    public ValidationResult Validate(ServiceTopology topology, IReadOnlyList<ServiceDefinition> services)
+    private static readonly IReadOnlyDictionary<string, string> OperationTechnologyMap =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["redis-call"] = "redis",
+            ["pg-call"]    = "postgres",
+            ["http-call"]  = "http"
+        };
+
+    public ValidationResult Validate(
+        ServiceTopology topology,
+        IReadOnlyList<ServiceDefinition> services,
+        IReadOnlyList<AdapterDefinition> adapters)
+    {
+        List<string> errors = [];
+
+        ValidateConnections(topology, services, errors);
+        ValidateAdapterRefs(services, adapters, errors);
+        ValidateOperationTechnologies(services, adapters, errors);
+
+        if (errors.Count > 0)
+            return ValidationResult.Failure(errors);
+
+        try
+        {
+            topology.GetStartupOrder(services);
+        }
+        catch (InvalidOperationException ex)
+        {
+            errors.Add(ex.Message);
+        }
+
+        return errors.Count == 0 ? ValidationResult.Success() : ValidationResult.Failure(errors);
+    }
+
+    private static void ValidateConnections(
+        ServiceTopology topology,
+        IReadOnlyList<ServiceDefinition> services,
+        List<string> errors)
     {
         HashSet<string> knownNames = services.Select(s => s.Name).ToHashSet();
-        List<string> errors = [];
 
         foreach (ConnectionDefinition connection in topology.Connections)
         {
@@ -21,20 +57,47 @@ public sealed class TopologyValidator : ITopologyValidator
             if (connection.From == connection.To)
                 errors.Add($"Connection from '{connection.From}' to itself is not allowed.");
         }
+    }
 
-        if (errors.Count > 0)
-            return ValidationResult.Failure(errors);
+    private static void ValidateAdapterRefs(
+        IReadOnlyList<ServiceDefinition> services,
+        IReadOnlyList<AdapterDefinition> adapters,
+        List<string> errors)
+    {
+        HashSet<string> adapterNames = adapters.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // Detect cycles via topological sort
-        try
+        foreach (ServiceDefinition service in services)
         {
-            topology.GetStartupOrder(services);
+            foreach (string adapterRef in service.SyntheticAdapters)
+            {
+                if (!adapterNames.Contains(adapterRef))
+                    errors.Add(
+                        $"Service '{service.Name}' references adapter '{adapterRef}' which is not declared in 'adapters:'.");
+            }
         }
-        catch (InvalidOperationException ex)
-        {
-            errors.Add(ex.Message);
-        }
+    }
 
-        return errors.Count == 0 ? ValidationResult.Success() : ValidationResult.Failure(errors);
+    private static void ValidateOperationTechnologies(
+        IReadOnlyList<ServiceDefinition> services,
+        IReadOnlyList<AdapterDefinition> adapters,
+        List<string> errors)
+    {
+        HashSet<string> registeredTechnologies = adapters
+            .Select(a => a.Technology)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ServiceDefinition service in services)
+        {
+            foreach (string operation in service.SyntheticOperations)
+            {
+                if (!OperationTechnologyMap.TryGetValue(operation, out string? requiredTechnology))
+                    continue;
+
+                if (!registeredTechnologies.Contains(requiredTechnology))
+                    errors.Add(
+                        $"Service '{service.Name}' uses operation '{operation}' which requires technology " +
+                        $"'{requiredTechnology}', but no adapter with that technology is registered.");
+            }
+        }
     }
 }

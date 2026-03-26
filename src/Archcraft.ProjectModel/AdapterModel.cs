@@ -2,7 +2,7 @@ using YamlDotNet.Serialization;
 
 namespace Archcraft.ProjectModel;
 
-public sealed class ServiceModel
+public sealed class AdapterModel
 {
     [YamlMember(Alias = "name")]
     public string Name { get; set; } = string.Empty;
@@ -13,12 +13,6 @@ public sealed class ServiceModel
     [YamlMember(Alias = "port")]
     public int Port { get; set; }
 
-    [YamlMember(Alias = "env")]
-    public Dictionary<string, string>? Env { get; set; }
-
-    [YamlMember(Alias = "readiness")]
-    public ReadinessModel? Readiness { get; set; }
-
-    [YamlMember(Alias = "synthetic")]
-    public SyntheticServiceModel? Synthetic { get; set; }
+    [YamlMember(Alias = "technology")]
+    public string Technology { get; set; } = string.Empty;
 }

@@ -13,4 +13,8 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\adapters\Adapters.Contracts\Adapters.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>

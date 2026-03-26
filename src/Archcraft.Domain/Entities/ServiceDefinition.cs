@@ -9,4 +9,6 @@ public sealed record ServiceDefinition
     public required ServicePort Port { get; init; }
     public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
     public ReadinessConfig? Readiness { get; init; }
+    public IReadOnlyList<string> SyntheticAdapters { get; init; } = [];
+    public IReadOnlyList<string> SyntheticOperations { get; init; } = [];
 }

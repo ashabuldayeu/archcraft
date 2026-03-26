@@ -40,7 +40,7 @@ public sealed class ValidateProjectUseCase
         if (project.Services.Count == 0)
             return ValidationResult.Failure("Project must define at least one service.");
 
-        ValidationResult topologyResult = _validator.Validate(project.Topology, project.Services);
+        ValidationResult topologyResult = _validator.Validate(project.Topology, project.Services, project.Adapters);
         if (!topologyResult.IsValid)
             return topologyResult;
 

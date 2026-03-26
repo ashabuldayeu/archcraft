@@ -22,6 +22,16 @@ builder.Services.AddSingleton<RuntimeConfigStore>(sp =>
     return store;
 });
 
+// HTTP clients for adapters — address from ADAPTER_{NAME}_URL env var or Docker network alias
+builder.Services.AddHttpClient(RedisCallOperation.AdapterName, client =>
+    client.BaseAddress = GetAdapterBaseAddress(builder.Configuration, RedisCallOperation.AdapterName));
+
+builder.Services.AddHttpClient(PgCallOperation.AdapterName, client =>
+    client.BaseAddress = GetAdapterBaseAddress(builder.Configuration, PgCallOperation.AdapterName));
+
+builder.Services.AddHttpClient(HttpCallOperation.AdapterName, client =>
+    client.BaseAddress = GetAdapterBaseAddress(builder.Configuration, HttpCallOperation.AdapterName));
+
 builder.Services.AddSingleton<IOperation, RedisCallOperation>();
 builder.Services.AddSingleton<IOperation, PgCallOperation>();
 builder.Services.AddSingleton<IOperation, HttpCallOperation>();
@@ -82,4 +92,15 @@ static SynteticApiOptions LoadOptions(IConfiguration configuration)
     SynteticApiOptions fromSection = new();
     configuration.GetSection(SynteticApiOptions.SectionName).Bind(fromSection);
     return fromSection;
+}
+
+static Uri GetAdapterBaseAddress(IConfiguration configuration, string adapterName)
+{
+    string envKey = $"ADAPTER_{adapterName.Replace("-", "_").ToUpperInvariant()}_URL";
+    string? envValue = configuration[envKey];
+
+    if (!string.IsNullOrEmpty(envValue))
+        return new Uri(envValue);
+
+    return new Uri($"http://{adapterName}");
 }

@@ -14,7 +14,7 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
 
     public ExecutionPlan Compile(ProjectDefinition project)
     {
-        ValidationResult validation = _validator.Validate(project.Topology, project.Services);
+        ValidationResult validation = _validator.Validate(project.Topology, project.Services, project.Adapters);
         if (!validation.IsValid)
             throw new InvalidOperationException(
                 $"Project validation failed:{Environment.NewLine}{string.Join(Environment.NewLine, validation.Errors)}");
