@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>archcraft</AssemblyName>
+    <RootNamespace>Archcraft.Cli</RootNamespace>
+    <Version>0.1.0</Version>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>archcraft</ToolCommandName>
+    <PackageId>Archcraft.Cli</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Archcraft.App\Archcraft.App.csproj" />
+    <ProjectReference Include="..\Archcraft.Serialization.Yaml\Archcraft.Serialization.Yaml.csproj" />
+    <ProjectReference Include="..\Archcraft.ProjectCompiler\Archcraft.ProjectCompiler.csproj" />
+    <ProjectReference Include="..\Archcraft.Execution.Docker\Archcraft.Execution.Docker.csproj" />
+    <ProjectReference Include="..\Archcraft.Scenarios\Archcraft.Scenarios.csproj" />
+    <ProjectReference Include="..\Archcraft.Observability\Archcraft.Observability.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.5" />
+    <PackageReference Include="System.CommandLine" Version="3.0.0-preview.2.26159.112" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,30 @@
+name: my-project
+
+services:
+  - name: api
+    image: nginx:latest
+    port: 80
+    readiness:
+      path: /
+      timeout: 30s
+
+  - name: db
+    image: postgres:15
+    port: 5432
+    env:
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: appdb
+
+connections:
+  # api → db: auto-generates DB_URL=db:5432 in api container
+  - from: api
+    to: db
+    protocol: tcp
+
+scenarios:
+  - name: basic-load
+    type: http
+    target: http://api:80/
+    rps: 5
+    duration: 15s
+    startup_timeout: 30s
