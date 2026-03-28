@@ -78,6 +78,13 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                 return adapter with { Env = env };
             }
 
+            if (adapter.Technology == "redis" && adapter.ConnectsTo is not null)
+            {
+                string connectionString = BuildRedisConnectionString(adapter.ConnectsTo, services);
+                Dictionary<string, string> env = new(adapter.Env) { ["REDIS_CONNECTION_STRING"] = connectionString };
+                return adapter with { Env = env };
+            }
+
             return adapter;
         }).ToList();
     }
@@ -92,5 +99,17 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         service.Env.TryGetValue("POSTGRES_PASSWORD", out string? password);
 
         return $"Host={serviceName};Port=5432;Database={db};Username={user};Password={password}";
+    }
+
+    private static string BuildRedisConnectionString(string serviceName, Dictionary<string, ServiceDefinition> services)
+    {
+        if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
+            throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found in project.");
+
+        service.Env.TryGetValue("REDIS_PASSWORD", out string? password);
+
+        return string.IsNullOrEmpty(password)
+            ? $"{serviceName}:6379"
+            : $"{serviceName}:6379,password={password}";
     }
 }
