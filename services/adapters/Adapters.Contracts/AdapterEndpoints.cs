@@ -20,6 +20,8 @@ public static class AdapterEndpoints
 
             httpContext.Response.Headers["X-Correlation-Id"] = correlationId;
 
+            request.CorrelationId = string.IsNullOrEmpty(correlationId) ? null : correlationId;
+
             IEnumerable<IAdapterOperation> operations = services.GetServices<IAdapterOperation>();
             IAdapterOperation? operation = operations
                 .FirstOrDefault(o => o.OperationName.Equals(request.Operation, StringComparison.OrdinalIgnoreCase));

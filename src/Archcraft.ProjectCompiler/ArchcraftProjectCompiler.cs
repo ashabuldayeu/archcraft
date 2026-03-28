@@ -85,6 +85,13 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                 return adapter with { Env = env };
             }
 
+            if (adapter.Technology == "http" && adapter.ConnectsTo is not null)
+            {
+                string targetUrl = BuildHttpTargetUrl(adapter.ConnectsTo, services);
+                Dictionary<string, string> env = new(adapter.Env) { ["HTTP_TARGET_URL"] = targetUrl };
+                return adapter with { Env = env };
+            }
+
             return adapter;
         }).ToList();
     }
@@ -111,5 +118,13 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         return string.IsNullOrEmpty(password)
             ? $"{serviceName}:6379"
             : $"{serviceName}:6379,password={password}";
+    }
+
+    private static string BuildHttpTargetUrl(string serviceName, Dictionary<string, ServiceDefinition> services)
+    {
+        if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
+            throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found in project.");
+
+        return $"http://{serviceName}:{service.Port.Value}";
     }
 }
