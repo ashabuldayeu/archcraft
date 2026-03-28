@@ -8,4 +8,6 @@ public sealed record AdapterDefinition
     public required string Image { get; init; }
     public required ServicePort Port { get; init; }
     public required string Technology { get; init; }
+    public string? ConnectsTo { get; init; }
+    public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
 }

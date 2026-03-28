@@ -15,4 +15,7 @@ public sealed class AdapterModel
 
     [YamlMember(Alias = "technology")]
     public string Technology { get; set; } = string.Empty;
+
+    [YamlMember(Alias = "connects-to")]
+    public string? ConnectsTo { get; set; }
 }

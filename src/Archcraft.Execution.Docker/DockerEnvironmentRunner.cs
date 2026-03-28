@@ -46,6 +46,33 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
 
             _logger.LogInformation("Service '{ServiceName}' ready at {Host}:{Port}.", service.Name, host, mappedPort);
         }
+
+        foreach (AdapterDefinition adapter in plan.Adapters)
+        {
+            _logger.LogInformation("Starting adapter '{AdapterName}' ({Image})...", adapter.Name, adapter.Image);
+            IContainer container = await StartAdapterAsync(adapter, plan.NetworkName, cancellationToken);
+            _containers.Add(container);
+
+            _logger.LogInformation("Adapter '{AdapterName}' started.", adapter.Name);
+        }
+    }
+
+    private async Task<IContainer> StartAdapterAsync(
+        AdapterDefinition adapter,
+        string networkName,
+        CancellationToken cancellationToken)
+    {
+        ContainerBuilder builder = new ContainerBuilder(adapter.Image)
+            .WithNetwork(networkName)
+            .WithNetworkAliases(adapter.Name)
+            .WithPortBinding(adapter.Port.Value, true);
+
+        foreach ((string key, string value) in adapter.Env)
+            builder = builder.WithEnvironment(key, value);
+
+        IContainer container = builder.Build();
+        await container.StartAsync(cancellationToken);
+        return container;
     }
 
     private async Task<IContainer> StartServiceAsync(
