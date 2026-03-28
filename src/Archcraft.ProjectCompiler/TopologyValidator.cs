@@ -5,7 +5,7 @@ namespace Archcraft.ProjectCompiler;
 
 public sealed class TopologyValidator : ITopologyValidator
 {
-    private static readonly IReadOnlyDictionary<string, string> OperationTechnologyMap =
+    internal static readonly IReadOnlyDictionary<string, string> OperationTechnologyMap =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["redis-call"] = "redis",

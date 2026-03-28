@@ -33,6 +33,11 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         // Inject resolved env vars into the ordered service definitions
         orderedServices = InjectEnvVars(orderedServices, resolvedConnections);
 
+        // Inject ADAPTER_OP_*_URL env vars into synthetic services
+        Dictionary<string, AdapterDefinition> adapterByTechnology = project.Adapters
+            .ToDictionary(a => a.Technology, StringComparer.OrdinalIgnoreCase);
+        orderedServices = InjectAdapterOpUrls(orderedServices, adapterByTechnology);
+
         Dictionary<string, ServiceDefinition> serviceByNameFinal = orderedServices.ToDictionary(s => s.Name);
         List<AdapterDefinition> compiledAdapters = InjectAdapterEnvVars(project.Adapters, serviceByNameFinal);
 
@@ -63,6 +68,33 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         return services
             .Select(s => s with { Env = injected[s.Name] })
             .ToList();
+    }
+
+    private static List<ServiceDefinition> InjectAdapterOpUrls(
+        List<ServiceDefinition> services,
+        Dictionary<string, AdapterDefinition> adapterByTechnology)
+    {
+        return services.Select(service =>
+        {
+            if (service.SyntheticOperations.Count == 0)
+                return service;
+
+            Dictionary<string, string> env = new(service.Env);
+
+            foreach (string operation in service.SyntheticOperations)
+            {
+                if (!TopologyValidator.OperationTechnologyMap.TryGetValue(operation, out string? technology))
+                    continue;
+
+                if (!adapterByTechnology.TryGetValue(technology, out AdapterDefinition? adapter))
+                    continue;
+
+                string envKey = $"ADAPTER_OP_{operation.Replace("-", "_").ToUpperInvariant()}_URL";
+                env[envKey] = $"http://{adapter.Name}";
+            }
+
+            return service with { Env = env };
+        }).ToList();
     }
 
     private static List<AdapterDefinition> InjectAdapterEnvVars(

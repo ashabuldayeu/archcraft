@@ -9,16 +9,16 @@ public sealed class PipelineExecutor
 {
     private static readonly Random _random = Random.Shared;
 
-    private readonly OperationRegistry _registry;
+    private readonly AdapterCallOperation _adapterCall;
     private readonly SynteticMetrics _metrics;
     private readonly ILogger<PipelineExecutor> _logger;
 
     public PipelineExecutor(
-        OperationRegistry registry,
+        AdapterCallOperation adapterCall,
         SynteticMetrics metrics,
         ILogger<PipelineExecutor> logger)
     {
-        _registry = registry;
+        _adapterCall = adapterCall;
         _metrics = metrics;
         _logger = logger;
     }
@@ -44,23 +44,10 @@ public sealed class PipelineExecutor
         OperationContext context,
         CancellationToken cancellationToken)
     {
-        IOperation? operation = _registry.Get(step.Operation);
-
-        if (operation is null)
-        {
-            _logger.LogWarning("Operation type '{OperationType}' not found in registry", step.Operation);
-            return new PipelineStepResult
-            {
-                Operation = step.Operation,
-                Outcome = OperationOutcome.Error,
-                Duration = TimeSpan.Zero
-            };
-        }
-
         using Activity? activity = SynteticTracing.StartOperationActivity(
             step.Operation, context.CorrelationId, context.ParentActivity);
 
-        OperationResult opResult = await operation.ExecuteAsync(context, cancellationToken);
+        OperationResult opResult = await _adapterCall.ExecuteAsync(step.Operation, context, cancellationToken);
 
         OperationOutcome outcome = ResolveOutcome(step.NotFoundRate, opResult.Outcome);
 
