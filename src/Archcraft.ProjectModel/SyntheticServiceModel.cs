@@ -25,7 +25,7 @@ public sealed class SyntheticPipelineStepModel
     [YamlMember(Alias = "operation")]
     public string Operation { get; set; } = string.Empty;
 
-    [YamlMember(Alias = "not-found-rate")]
+    [YamlMember(Alias = "not_found_rate")]
     public double NotFoundRate { get; set; }
 
     [YamlMember(Alias = "fallback")]

@@ -55,6 +55,7 @@ public sealed class HttpScenarioRunner : IScenarioRunner
         TimeSpan timeout = scenario.StartupTimeout.Value;
         Stopwatch stopwatch = Stopwatch.StartNew();
 
+        string healthUrl = BuildHealthUrl(scenario.Target);
         _logger.LogInformation("Waiting for target {Target} to become available (timeout: {Timeout})...",
             scenario.Target, timeout);
 
@@ -63,7 +64,7 @@ public sealed class HttpScenarioRunner : IScenarioRunner
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                HttpResponseMessage response = await client.GetAsync(scenario.Target, cancellationToken);
+                HttpResponseMessage response = await client.GetAsync(healthUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
                     _logger.LogInformation("Target {Target} is ready.", scenario.Target);
@@ -77,6 +78,12 @@ public sealed class HttpScenarioRunner : IScenarioRunner
 
         throw new TimeoutException(
             $"Target '{scenario.Target}' did not become available within {timeout.TotalSeconds}s.");
+    }
+
+    private static string BuildHealthUrl(string target)
+    {
+        Uri uri = new(target);
+        return $"{uri.Scheme}://{uri.Authority}/health";
     }
 
     private async Task RunLoadAsync(
@@ -114,7 +121,7 @@ public sealed class HttpScenarioRunner : IScenarioRunner
 
         try
         {
-            HttpResponseMessage response = await client.GetAsync(target, cancellationToken);
+            HttpResponseMessage response = await client.PostAsync(target, content: null, cancellationToken);
             timer.Stop();
             success = response.IsSuccessStatusCode;
         }

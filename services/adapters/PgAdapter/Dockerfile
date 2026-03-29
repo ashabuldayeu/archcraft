@@ -1,13 +1,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY ../Adapters.Contracts/Adapters.Contracts.csproj ../Adapters.Contracts/
-COPY PgAdapter.csproj .
-RUN dotnet restore
+COPY Adapters.Contracts/Adapters.Contracts.csproj Adapters.Contracts/
+COPY PgAdapter/PgAdapter.csproj PgAdapter/
+RUN dotnet restore PgAdapter/PgAdapter.csproj
 
-COPY ../Adapters.Contracts/ ../Adapters.Contracts/
-COPY . .
-RUN dotnet publish -c Release -o /app/publish --no-restore
+COPY Adapters.Contracts/ Adapters.Contracts/
+COPY PgAdapter/ PgAdapter/
+RUN dotnet publish PgAdapter/PgAdapter.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app

@@ -12,7 +12,7 @@ public sealed class GetOperation : IAdapterOperation
     private readonly RedisConnectionFactory _factory;
     private readonly RetryPolicy _retry;
 
-    public string OperationName => "get";
+    public string OperationName => "redis-call";
 
     public GetOperation(RedisConnectionFactory factory, RetryPolicy retry)
     {
@@ -60,6 +60,6 @@ public sealed class GetOperation : IAdapterOperation
         if (request.Payload.TryGetValue("key", out object? value) && value is not null)
             return value.ToString()!;
 
-        throw new ArgumentException("Payload must contain 'key'.");
+        return "load-test-key";
     }
 }

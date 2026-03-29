@@ -1,0 +1,102 @@
+name: test-project
+
+# ── Инфраструктурные сервисы ────────────────────────────────────────────────
+
+services:
+  - name: redis
+    image: redis:7
+    port: 6379
+
+  - name: postgres
+    image: postgres:16
+    port: 5432
+    env:
+      POSTGRES_DB: archcraft
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: secret
+
+# ── Synthetic-сервисы ────────────────────────────────────────────────────────
+
+  - name: backend
+    image: archcraft/synthetic:latest
+    port: 8080
+    readiness:
+      path: /health
+      timeout: 30s
+    synthetic:
+      adapters:
+        - redis-adapter
+        - pg-adapter
+      endpoints:
+        - alias: process
+          pipeline:
+            - operation: redis-call
+              not_found_rate: 0.5
+              fallback:
+                - operation: pg-call
+
+  - name: frontend
+    image: archcraft/synthetic:latest
+    port: 8080
+    readiness:
+      path: /health
+      timeout: 30s
+    synthetic:
+      adapters:
+        - http-adapter
+      endpoints:
+        - alias: handle
+          pipeline:
+            - operation: http-call
+
+# ── Адаптеры ─────────────────────────────────────────────────────────────────
+
+adapters:
+  - name: redis-adapter
+    image: archcraft/redis-adapter:latest
+    port: 8080
+    technology: redis
+    connects_to: redis
+
+  - name: pg-adapter
+    image: archcraft/pg-adapter:latest
+    port: 8080
+    technology: postgres
+    connects_to: postgres
+
+  - name: http-adapter
+    image: archcraft/http-adapter:latest
+    port: 8080
+    technology: http
+    connects_to: backend
+
+# ── Связи между сервисами ────────────────────────────────────────────────────
+
+connections:
+  - from: frontend
+    to: backend
+    protocol: http
+    port: 8080
+    via: http-adapter
+
+  - from: backend
+    to: redis
+    protocol: tcp
+    port: 6379
+    via: redis-adapter
+
+  - from: backend
+    to: postgres
+    protocol: tcp
+    port: 5432
+    via: pg-adapter
+
+# ── Сценарии нагрузки ────────────────────────────────────────────────────────
+
+scenarios:
+  - name: baseline
+    type: http
+    target: http://frontend:8080/handle
+    rps: 10
+    duration: 60s
+    startup_timeout: 90s

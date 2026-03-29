@@ -1,13 +1,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY ../Adapters.Contracts/Adapters.Contracts.csproj ../Adapters.Contracts/
-COPY HttpAdapter.csproj .
-RUN dotnet restore
+COPY Adapters.Contracts/Adapters.Contracts.csproj Adapters.Contracts/
+COPY HttpAdapter/HttpAdapter.csproj HttpAdapter/
+RUN dotnet restore HttpAdapter/HttpAdapter.csproj
 
-COPY ../Adapters.Contracts/ ../Adapters.Contracts/
-COPY . .
-RUN dotnet publish -c Release -o /app/publish --no-restore
+COPY Adapters.Contracts/ Adapters.Contracts/
+COPY HttpAdapter/ HttpAdapter/
+RUN dotnet publish HttpAdapter/HttpAdapter.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app

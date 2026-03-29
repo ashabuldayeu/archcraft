@@ -14,7 +14,7 @@ public sealed class RequestOperation : IAdapterOperation
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly RetryPolicy _retry;
 
-    public string OperationName => "request";
+    public string OperationName => "http-call";
 
     public RequestOperation(IHttpClientFactory httpClientFactory, RetryPolicy retry)
     {
@@ -76,6 +76,11 @@ public sealed class RequestOperation : IAdapterOperation
         if (request.Payload.TryGetValue(key, out object? value) && value is not null)
             return value.ToString()!;
 
-        throw new ArgumentException($"Payload must contain '{key}'.");
+        return key switch
+        {
+            "method" => "POST",
+            "path"   => "/process",
+            _        => throw new ArgumentException($"Payload must contain '{key}'.")
+        };
     }
 }

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker build:*)",
+      "Bash(grep \"Testcontainers\" /c/Users/User/source/repos/archcraft/src/Archcraft.Execution.Docker/*.csproj)"
+    ]
+  }
+}

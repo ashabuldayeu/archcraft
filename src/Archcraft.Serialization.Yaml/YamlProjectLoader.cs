@@ -69,7 +69,26 @@ public sealed class YamlProjectLoader : IProjectLoader
             SyntheticAdapters = model.Synthetic?.Adapters ?? [],
             SyntheticOperations = model.Synthetic is null
                 ? []
-                : ExtractOperations(model.Synthetic.Endpoints).Distinct().ToList()
+                : ExtractOperations(model.Synthetic.Endpoints).Distinct().ToList(),
+            SyntheticEndpoints = model.Synthetic is null
+                ? []
+                : model.Synthetic.Endpoints.Select(MapEndpoint).ToList()
+        };
+
+    private static SyntheticEndpoint MapEndpoint(SyntheticEndpointModel model) =>
+        new()
+        {
+            Alias = model.Alias,
+            Pipeline = model.Pipeline.Select(MapPipelineStep).ToList()
+        };
+
+    private static PipelineStep MapPipelineStep(SyntheticPipelineStepModel model) =>
+        new()
+        {
+            Operation = model.Operation,
+            NotFoundRate = model.NotFoundRate,
+            Fallback = model.Fallback.Select(MapPipelineStep).ToList(),
+            Children = model.Children.Select(MapPipelineStep).ToList()
         };
 
     private static IEnumerable<string> ExtractOperations(IEnumerable<SyntheticEndpointModel> endpoints)

@@ -49,9 +49,6 @@ services:
   - name: redis
     image: redis:7
     port: 6379
-    readiness:
-      path: /
-      timeout: 30s
 
   - name: postgres
     image: postgres:16
@@ -60,9 +57,6 @@ services:
       POSTGRES_DB: archcraft
       POSTGRES_USER: user
       POSTGRES_PASSWORD: secret
-    readiness:
-      path: /
-      timeout: 60s
 
 # ── Synthetic-сервисы ────────────────────────────────────────────────────────
 
@@ -83,7 +77,7 @@ services:
           pipeline:
             # 1. Попытка прочитать из Redis
             - operation: redis-call
-              not-found-rate: 0.5        # 50% — ключ не найден, идём в fallback
+              not_found_rate: 0.5        # 50% — ключ не найден, идём в fallback
               fallback:
                 # 2. Промах → идём в Postgres
                 - operation: pg-call
@@ -109,21 +103,21 @@ services:
 adapters:
   - name: redis-adapter
     image: archcraft/redis-adapter:latest
-    port: 8081
+    port: 8080
     technology: redis
-    connects-to: redis          # CLI построит REDIS_CONNECTION_STRING из этого сервиса
+    connects_to: redis          # CLI построит REDIS_CONNECTION_STRING из этого сервиса
 
   - name: pg-adapter
     image: archcraft/pg-adapter:latest
-    port: 8082
+    port: 8080
     technology: postgres
-    connects-to: postgres       # CLI построит PG_CONNECTION_STRING из этого сервиса
+    connects_to: postgres       # CLI построит PG_CONNECTION_STRING из этого сервиса
 
   - name: http-adapter
     image: archcraft/http-adapter:latest
-    port: 8083
+    port: 8080
     technology: http
-    connects-to: backend        # CLI построит HTTP_TARGET_URL=http://backend:8080
+    connects_to: backend        # CLI построит HTTP_TARGET_URL=http://backend:8080
 
 # ── Связи между сервисами ────────────────────────────────────────────────────
 
@@ -154,7 +148,7 @@ connections:
 scenarios:
   - name: baseline
     type: http
-    target: frontend            # CLI будет слать запросы на этот сервис
+    target: http://frontend:8080/handle  # CLI заменит frontend:8080 на mapped address
     rps: 50
     duration: 60s
     startup_timeout: 60s
@@ -185,7 +179,7 @@ synthetic:
 | Поле | Описание |
 |------|----------|
 | `operation` | Тип операции: `redis-call`, `pg-call`, `http-call` |
-| `not-found-rate` | Вероятность исхода `not_found` (0.0–1.0). При срабатывании выполняется `fallback` |
+| `not_found_rate` | Вероятность исхода `not_found` (0.0–1.0). При срабатывании выполняется `fallback` |
 | `fallback` | Список шагов, выполняемых при `not_found` |
 | `children` | Список шагов, выполняемых последовательно после успешной операции |
 
@@ -194,7 +188,7 @@ synthetic:
 ```yaml
 pipeline:
   - operation: redis-call
-    not-found-rate: 0.5       # 50% запросов идут в fallback
+    not_found_rate: 0.5       # 50% запросов идут в fallback
     fallback:
       - operation: pg-call    # при промахе — читаем из Postgres
 ```
@@ -210,7 +204,7 @@ pipeline:
 
 ### `adapters` — технологические адаптеры
 
-Адаптер — отдельный контейнер, реализующий протокол `POST /execute`. CLI запускает его в той же Docker-сети и инжектирует connection string из `connects-to`.
+Адаптер — отдельный контейнер, реализующий протокол `POST /execute`. CLI запускает его в той же Docker-сети и инжектирует connection string из `connects_to`.
 
 | Поле | Описание |
 |------|----------|
@@ -218,7 +212,7 @@ pipeline:
 | `image` | Docker-образ адаптера |
 | `port` | Порт, на котором слушает адаптер |
 | `technology` | `redis`, `postgres`, `http` |
-| `connects-to` | Имя сервиса из `services`, к которому подключается адаптер |
+| `connects_to` | Имя сервиса из `services`, к которому подключается адаптер |
 
 **Что строит CLI в зависимости от `technology`:**
 
@@ -248,7 +242,7 @@ pipeline:
 scenarios:
   - name: baseline
     type: http          # тип сценария (сейчас только http)
-    target: frontend    # сервис, на который идёт нагрузка
+    target: http://frontend:8080/handle  # CLI заменит service:port на mapped host:port
     rps: 50             # запросов в секунду
     duration: 60s       # продолжительность
     startup_timeout: 60s

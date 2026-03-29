@@ -12,7 +12,7 @@ public sealed class QueryOperation : IAdapterOperation
     private readonly DbConnectionFactory _factory;
     private readonly RetryPolicy _retry;
 
-    public string OperationName => "query";
+    public string OperationName => "pg-call";
 
     public QueryOperation(DbConnectionFactory factory, RetryPolicy retry)
     {
@@ -71,6 +71,6 @@ public sealed class QueryOperation : IAdapterOperation
         if (request.Payload.TryGetValue("id", out object? value) && value is not null)
             return Convert.ToInt32(value);
 
-        throw new ArgumentException("Payload must contain 'id'.");
+        return Random.Shared.Next(1, 1000);
     }
 }

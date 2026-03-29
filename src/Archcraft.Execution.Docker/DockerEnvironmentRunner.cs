@@ -2,6 +2,7 @@ using Archcraft.Contracts;
 using Archcraft.Domain.Entities;
 using Archcraft.Execution;
 using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,8 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
 
     public async Task StartAsync(ExecutionPlan plan, CancellationToken cancellationToken = default)
     {
+        TestcontainersSettings.WaitStrategyTimeout = TimeSpan.FromMinutes(2);
+
         _logger.LogInformation("Creating Docker network '{NetworkName}'...", plan.NetworkName);
         _network = new NetworkBuilder()
             .WithName(plan.NetworkName)
@@ -65,7 +68,8 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         ContainerBuilder builder = new ContainerBuilder(adapter.Image)
             .WithNetwork(networkName)
             .WithNetworkAliases(adapter.Name)
-            .WithPortBinding(adapter.Port.Value, true);
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilMessageIsLogged("Application started"));
 
         foreach ((string key, string value) in adapter.Env)
             builder = builder.WithEnvironment(key, value);

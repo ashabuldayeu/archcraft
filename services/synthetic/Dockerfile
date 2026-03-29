@@ -1,11 +1,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY SynteticApi.csproj .
-RUN dotnet restore
+COPY adapters/Adapters.Contracts/Adapters.Contracts.csproj adapters/Adapters.Contracts/
+COPY synthetic/SynteticApi.csproj synthetic/
+RUN dotnet restore synthetic/SynteticApi.csproj
 
-COPY . .
-RUN dotnet publish -c Release -o /app/publish --no-restore
+COPY adapters/Adapters.Contracts/ adapters/Adapters.Contracts/
+COPY synthetic/ synthetic/
+RUN dotnet publish synthetic/SynteticApi.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app

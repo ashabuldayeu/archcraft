@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Archcraft.Contracts;
 using Archcraft.Domain.Entities;
 
@@ -37,6 +38,9 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         Dictionary<string, AdapterDefinition> adapterByTechnology = project.Adapters
             .ToDictionary(a => a.Technology, StringComparer.OrdinalIgnoreCase);
         orderedServices = InjectAdapterOpUrls(orderedServices, adapterByTechnology);
+
+        // Inject SYNTETIC_CONFIG JSON into synthetic services
+        orderedServices = InjectSynteticConfig(orderedServices);
 
         Dictionary<string, ServiceDefinition> serviceByNameFinal = orderedServices.ToDictionary(s => s.Name);
         List<AdapterDefinition> compiledAdapters = InjectAdapterEnvVars(project.Adapters, serviceByNameFinal);
@@ -90,12 +94,45 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                     continue;
 
                 string envKey = $"ADAPTER_OP_{operation.Replace("-", "_").ToUpperInvariant()}_URL";
-                env[envKey] = $"http://{adapter.Name}";
+                env[envKey] = $"http://{adapter.Name}:{adapter.Port.Value}";
             }
 
             return service with { Env = env };
         }).ToList();
     }
+
+    private static List<ServiceDefinition> InjectSynteticConfig(List<ServiceDefinition> services)
+    {
+        return services.Select(service =>
+        {
+            if (service.SyntheticEndpoints.Count == 0)
+                return service;
+
+            object config = new
+            {
+                ServiceName = service.Name,
+                Endpoints = service.SyntheticEndpoints.Select(BuildEndpointDto).ToList()
+            };
+
+            string json = JsonSerializer.Serialize(config);
+            Dictionary<string, string> env = new(service.Env) { ["SYNTETIC_CONFIG"] = json };
+            return service with { Env = env };
+        }).ToList();
+    }
+
+    private static object BuildEndpointDto(SyntheticEndpoint endpoint) => new
+    {
+        endpoint.Alias,
+        Pipeline = endpoint.Pipeline.Select(BuildStepDto).ToList()
+    };
+
+    private static object BuildStepDto(PipelineStep step) => new
+    {
+        step.Operation,
+        step.NotFoundRate,
+        Fallback = step.Fallback.Select(BuildStepDto).ToList(),
+        Children = step.Children.Select(BuildStepDto).ToList()
+    };
 
     private static List<AdapterDefinition> InjectAdapterEnvVars(
         IReadOnlyList<AdapterDefinition> adapters,
