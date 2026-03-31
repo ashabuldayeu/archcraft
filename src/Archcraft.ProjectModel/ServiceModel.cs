@@ -19,6 +19,9 @@ public sealed class ServiceModel
     [YamlMember(Alias = "readiness")]
     public ReadinessModel? Readiness { get; set; }
 
+    [YamlMember(Alias = "proxy")]
+    public string? Proxy { get; set; }
+
     [YamlMember(Alias = "synthetic")]
     public SyntheticServiceModel? Synthetic { get; set; }
 }

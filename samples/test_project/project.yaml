@@ -6,10 +6,12 @@ services:
   - name: redis
     image: redis:7
     port: 6379
+    proxy: redis-proxy
 
   - name: postgres
     image: postgres:16
     port: 5432
+    proxy: pg-proxy
     env:
       POSTGRES_DB: archcraft
       POSTGRES_USER: user

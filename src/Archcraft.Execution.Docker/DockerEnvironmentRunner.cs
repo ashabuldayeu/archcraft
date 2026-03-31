@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using Archcraft.Contracts;
 using Archcraft.Domain.Entities;
 using Archcraft.Execution;
@@ -50,6 +51,28 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             _logger.LogInformation("Service '{ServiceName}' ready at {Host}:{Port}.", service.Name, host, mappedPort);
         }
 
+        foreach (ProxyDefinition proxy in plan.Proxies)
+        {
+            _logger.LogInformation("Starting proxy '{ProxyName}' → {ProxiedService}:{Port}...",
+                proxy.Name, proxy.ProxiedService, proxy.Port);
+
+            (IContainer container, int mappedApiPort) = await StartProxyAsync(proxy, plan.NetworkName, cancellationToken);
+            _containers.Add(container);
+
+            string apiUrl = $"http://localhost:{mappedApiPort}";
+            await ConfigureProxyAsync(proxy, apiUrl, cancellationToken);
+
+            _context.RegisterProxy(new RunningProxy
+            {
+                Name = proxy.Name,
+                ProxiedService = proxy.ProxiedService,
+                ApiUrl = apiUrl,
+                ListenPort = proxy.Port
+            });
+
+            _logger.LogInformation("Proxy '{ProxyName}' ready. API: {ApiUrl}", proxy.Name, apiUrl);
+        }
+
         foreach (AdapterDefinition adapter in plan.Adapters)
         {
             _logger.LogInformation("Starting adapter '{AdapterName}' ({Image})...", adapter.Name, adapter.Image);
@@ -58,6 +81,50 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
 
             _logger.LogInformation("Adapter '{AdapterName}' started.", adapter.Name);
         }
+    }
+
+    private const string ToxiProxyImage = "ghcr.io/shopify/toxiproxy:2.12.0";
+    private const int ToxiProxyApiPort = 8474;
+
+    private async Task<(IContainer container, int mappedApiPort)> StartProxyAsync(
+        ProxyDefinition proxy,
+        string networkName,
+        CancellationToken cancellationToken)
+    {
+        IContainer container = new ContainerBuilder(ToxiProxyImage)
+            .WithNetwork(networkName)
+            .WithNetworkAliases(proxy.Name)
+            .WithPortBinding(ToxiProxyApiPort, true)
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilHttpRequestIsSucceeded(req => req
+                    .ForPath("/version")
+                    .ForPort(ToxiProxyApiPort)))
+            .Build();
+
+        await container.StartAsync(cancellationToken);
+        int mappedApiPort = container.GetMappedPublicPort(ToxiProxyApiPort);
+        return (container, mappedApiPort);
+    }
+
+    private static async Task ConfigureProxyAsync(
+        ProxyDefinition proxy,
+        string apiUrl,
+        CancellationToken cancellationToken)
+    {
+        using HttpClient client = new();
+
+        object body = new
+        {
+            name = proxy.Name,
+            listen = $"0.0.0.0:{proxy.Port}",
+            upstream = $"{proxy.UpstreamHost}:{proxy.Port}",
+            enabled = true
+        };
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"{apiUrl}/proxies", body, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
     }
 
     private async Task<IContainer> StartAdapterAsync(

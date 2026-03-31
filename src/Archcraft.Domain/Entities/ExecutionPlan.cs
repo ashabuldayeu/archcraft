@@ -10,6 +10,7 @@ public sealed record ExecutionPlan
     /// <summary>Compiled connections with resolved env var names and values.</summary>
     public required IReadOnlyList<ResolvedConnection> ResolvedConnections { get; init; }
 
+    public required IReadOnlyList<ProxyDefinition> Proxies { get; init; }
     public required IReadOnlyList<AdapterDefinition> Adapters { get; init; }
 
     public required IReadOnlyList<ScenarioDefinition> Scenarios { get; init; }

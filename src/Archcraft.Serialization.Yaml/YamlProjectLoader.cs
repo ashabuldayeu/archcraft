@@ -61,6 +61,7 @@ public sealed class YamlProjectLoader : IProjectLoader
             Image = model.Image,
             Port = new ServicePort(model.Port),
             Env = model.Env ?? new Dictionary<string, string>(),
+            Proxy = model.Proxy,
             Readiness = model.Readiness is null ? null : new ReadinessConfig
             {
                 Path = model.Readiness.Path,

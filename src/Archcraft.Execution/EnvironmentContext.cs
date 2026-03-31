@@ -3,6 +3,7 @@ namespace Archcraft.Execution;
 public sealed class EnvironmentContext
 {
     private readonly Dictionary<string, RunningService> _services = new();
+    private readonly Dictionary<string, RunningProxy> _proxies = new();
 
     public void Register(RunningService service) =>
         _services[service.Name] = service;
@@ -16,4 +17,9 @@ public sealed class EnvironmentContext
         _services.TryGetValue(serviceName, out service);
 
     public IReadOnlyCollection<RunningService> AllServices => _services.Values;
+
+    public void RegisterProxy(RunningProxy proxy) =>
+        _proxies[proxy.Name] = proxy;
+
+    public IReadOnlyCollection<RunningProxy> AllProxies => _proxies.Values;
 }

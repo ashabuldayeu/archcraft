@@ -43,6 +43,8 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         orderedServices = InjectSynteticConfig(orderedServices);
 
         Dictionary<string, ServiceDefinition> serviceByNameFinal = orderedServices.ToDictionary(s => s.Name);
+
+        List<ProxyDefinition> proxies = BuildProxies(serviceByNameFinal);
         List<AdapterDefinition> compiledAdapters = InjectAdapterEnvVars(project.Adapters, serviceByNameFinal);
 
         return new ExecutionPlan
@@ -50,6 +52,7 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
             ProjectName = project.Name,
             OrderedServices = orderedServices,
             ResolvedConnections = resolvedConnections,
+            Proxies = proxies,
             Adapters = compiledAdapters,
             Scenarios = project.Scenarios,
             NetworkName = $"archcraft-{project.Name.ToLowerInvariant().Replace(' ', '-')}"
@@ -99,6 +102,32 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
 
             return service with { Env = env };
         }).ToList();
+    }
+
+    private static List<ProxyDefinition> BuildProxies(Dictionary<string, ServiceDefinition> services)
+    {
+        List<ProxyDefinition> proxies = [];
+        HashSet<string> seenNames = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ServiceDefinition service in services.Values)
+        {
+            if (service.Proxy is null)
+                continue;
+
+            if (!seenNames.Add(service.Proxy))
+                throw new InvalidOperationException(
+                    $"Duplicate proxy name '{service.Proxy}'. Each proxy name must be unique.");
+
+            proxies.Add(new ProxyDefinition
+            {
+                Name = service.Proxy,
+                ProxiedService = service.Name,
+                UpstreamHost = service.Name,
+                Port = service.Port.Value
+            });
+        }
+
+        return proxies;
     }
 
     private static List<ServiceDefinition> InjectSynteticConfig(List<ServiceDefinition> services)
@@ -170,11 +199,12 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
             throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found in project.");
 
+        string host = service.Proxy ?? serviceName;
         service.Env.TryGetValue("POSTGRES_DB", out string? db);
         service.Env.TryGetValue("POSTGRES_USER", out string? user);
         service.Env.TryGetValue("POSTGRES_PASSWORD", out string? password);
 
-        return $"Host={serviceName};Port=5432;Database={db};Username={user};Password={password}";
+        return $"Host={host};Port=5432;Database={db};Username={user};Password={password}";
     }
 
     private static string BuildRedisConnectionString(string serviceName, Dictionary<string, ServiceDefinition> services)
@@ -182,11 +212,12 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
             throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found in project.");
 
+        string host = service.Proxy ?? serviceName;
         service.Env.TryGetValue("REDIS_PASSWORD", out string? password);
 
         return string.IsNullOrEmpty(password)
-            ? $"{serviceName}:6379"
-            : $"{serviceName}:6379,password={password}";
+            ? $"{host}:6379"
+            : $"{host}:6379,password={password}";
     }
 
     private static string BuildHttpTargetUrl(string serviceName, Dictionary<string, ServiceDefinition> services)
@@ -194,6 +225,7 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
             throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found in project.");
 
-        return $"http://{serviceName}:{service.Port.Value}";
+        string host = service.Proxy ?? serviceName;
+        return $"http://{host}:{service.Port.Value}";
     }
 }
