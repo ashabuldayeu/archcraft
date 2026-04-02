@@ -100,5 +100,23 @@ scenarios:
     type: http
     target: http://frontend:8080/handle
     rps: 10
-    duration: 60s
+    duration: 20s
     startup_timeout: 90s
+
+  - name: redis-degradation
+    startup_timeout: 90s
+    timeline:
+      - at: 0s
+        actions:
+          - type: load
+            target: frontend
+            endpoint: handle
+            rps: 10
+      - at: 5s
+        actions:
+          - type: inject_latency
+            duration: 10s
+            target:
+              from: backend
+              to: redis
+            latency: 300ms

@@ -9,4 +9,7 @@ public interface IEnvironmentRunner : IAsyncDisposable
 
     /// <summary>Returns the host-accessible address for a service: "localhost:PORT".</summary>
     string GetMappedAddress(string serviceName);
+
+    /// <summary>Returns the ToxiProxy API URL (host-accessible) for a named proxy.</summary>
+    string GetProxyApiUrl(string proxyName);
 }

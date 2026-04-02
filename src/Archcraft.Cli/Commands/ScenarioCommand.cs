@@ -38,10 +38,11 @@ public static class ScenarioCommand
         {
             FileInfo file = result.GetValue(fileArg)!;
             string scenario = result.GetValue(scenarioOption)!;
-            RunProjectUseCase useCase = services.GetRequiredService<RunProjectUseCase>();
 
             try
             {
+                await using AsyncServiceScope scope = services.CreateAsyncScope();
+                RunProjectUseCase useCase = scope.ServiceProvider.GetRequiredService<RunProjectUseCase>();
                 RunReport report = await useCase.ExecuteAsync(file.FullName, scenario, ct);
                 ConsoleReportRenderer.Render(report);
                 await JsonReportWriter.WriteAsync(report, file.FullName, CancellationToken.None);

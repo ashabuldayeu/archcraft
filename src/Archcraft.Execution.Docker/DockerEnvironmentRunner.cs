@@ -190,6 +190,14 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         return service.Address;
     }
 
+    public string GetProxyApiUrl(string proxyName)
+    {
+        RunningProxy proxy = _context.AllProxies
+            .FirstOrDefault(p => p.Name == proxyName)
+            ?? throw new InvalidOperationException($"Proxy '{proxyName}' is not running.");
+        return proxy.ApiUrl;
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (IContainer container in _containers)

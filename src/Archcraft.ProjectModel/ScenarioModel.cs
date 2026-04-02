@@ -21,4 +21,7 @@ public sealed class ScenarioModel
 
     [YamlMember(Alias = "startup_timeout")]
     public string StartupTimeout { get; set; } = "30s";
+
+    [YamlMember(Alias = "timeline")]
+    public List<TimelinePointModel>? Timeline { get; set; }
 }

@@ -14,6 +14,7 @@ public sealed record ExecutionPlan
     public required IReadOnlyList<AdapterDefinition> Adapters { get; init; }
 
     public required IReadOnlyList<ScenarioDefinition> Scenarios { get; init; }
+    public IReadOnlyList<TimelineScenarioDefinition> TimelineScenarios { get; init; } = [];
 
     public required string NetworkName { get; init; }
 }

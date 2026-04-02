@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Archcraft.Domain\Archcraft.Domain.csproj" />
     <ProjectReference Include="..\Archcraft.Contracts\Archcraft.Contracts.csproj" />
+    <ProjectReference Include="..\Archcraft.Scenarios\Archcraft.Scenarios.csproj" />
   </ItemGroup>
 
   <ItemGroup>

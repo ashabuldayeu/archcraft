@@ -23,10 +23,11 @@ public static class RunCommand
         command.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             FileInfo file = result.GetValue(fileArg)!;
-            RunProjectUseCase useCase = services.GetRequiredService<RunProjectUseCase>();
 
             try
             {
+                await using AsyncServiceScope scope = services.CreateAsyncScope();
+                RunProjectUseCase useCase = scope.ServiceProvider.GetRequiredService<RunProjectUseCase>();
                 RunReport report = await useCase.ExecuteAsync(file.FullName, cancellationToken: ct);
                 ConsoleReportRenderer.Render(report);
                 await JsonReportWriter.WriteAsync(report, file.FullName, CancellationToken.None);

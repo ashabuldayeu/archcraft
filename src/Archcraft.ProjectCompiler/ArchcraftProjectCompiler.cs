@@ -47,6 +47,13 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         List<ProxyDefinition> proxies = BuildProxies(serviceByNameFinal);
         List<AdapterDefinition> compiledAdapters = InjectAdapterEnvVars(project.Adapters, serviceByNameFinal);
 
+        // Build proxy lookup: (from, to) → proxy name
+        Dictionary<(string from, string to), string> proxyByEdge = BuildProxyEdgeMap(
+            proxies, project.Topology.Connections);
+
+        List<TimelineScenarioDefinition> compiledTimelines = CompileTimelineScenarios(
+            project.TimelineScenarios, serviceByNameFinal, proxyByEdge);
+
         return new ExecutionPlan
         {
             ProjectName = project.Name,
@@ -55,6 +62,7 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
             Proxies = proxies,
             Adapters = compiledAdapters,
             Scenarios = project.Scenarios,
+            TimelineScenarios = compiledTimelines,
             NetworkName = $"archcraft-{project.Name.ToLowerInvariant().Replace(' ', '-')}"
         };
     }
@@ -227,5 +235,87 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
 
         string host = service.Proxy ?? serviceName;
         return $"http://{host}:{service.Port.Value}";
+    }
+
+    private static Dictionary<(string from, string to), string> BuildProxyEdgeMap(
+        List<ProxyDefinition> proxies,
+        IReadOnlyList<ConnectionDefinition> connections)
+    {
+        Dictionary<string, string> proxyByService = proxies
+            .ToDictionary(p => p.ProxiedService, p => p.Name, StringComparer.OrdinalIgnoreCase);
+
+        Dictionary<(string, string), string> result = new();
+
+        foreach (ConnectionDefinition conn in connections)
+        {
+            if (conn.Via is not null && proxyByService.TryGetValue(conn.To, out string? proxyName))
+                result[(conn.From, conn.To)] = proxyName;
+        }
+
+        return result;
+    }
+
+    private static List<TimelineScenarioDefinition> CompileTimelineScenarios(
+        IReadOnlyList<TimelineScenarioDefinition> scenarios,
+        Dictionary<string, ServiceDefinition> services,
+        Dictionary<(string from, string to), string> proxyByEdge)
+    {
+        return scenarios.Select(scenario => scenario with
+        {
+            Timeline = scenario.Timeline.Select(point => point with
+            {
+                Actions = point.Actions.Select(action => CompileAction(action, services, proxyByEdge)).ToList()
+            }).ToList()
+        }).ToList();
+    }
+
+    private static TimelineAction CompileAction(
+        TimelineAction action,
+        Dictionary<string, ServiceDefinition> services,
+        Dictionary<(string from, string to), string> proxyByEdge)
+    {
+        if (action is LoadAction load)
+        {
+            if (!services.TryGetValue(load.Target, out ServiceDefinition? service))
+                throw new InvalidOperationException(
+                    $"Timeline load target '{load.Target}' not found in project.");
+
+            if (service.SyntheticEndpoints.Count == 0)
+                throw new InvalidOperationException(
+                    $"Timeline load target '{load.Target}' is not a synthetic service. Only synthetic services can be load targets.");
+
+            if (!string.IsNullOrEmpty(load.Endpoint)
+                && service.SyntheticEndpoints.All(e => e.Alias != load.Endpoint))
+                throw new InvalidOperationException(
+                    $"Endpoint '{load.Endpoint}' not found in synthetic service '{load.Target}'.");
+
+            return load;
+        }
+
+        if (action is InjectLatencyAction latency)
+        {
+            string proxyName = ResolveInjectProxy(latency.From, latency.To, proxyByEdge);
+            return latency with { ProxyName = proxyName };
+        }
+
+        if (action is InjectErrorAction error)
+        {
+            string proxyName = ResolveInjectProxy(error.From, error.To, proxyByEdge);
+            return error with { ProxyName = proxyName };
+        }
+
+        return action;
+    }
+
+    private static string ResolveInjectProxy(
+        string from, string to,
+        Dictionary<(string, string), string> proxyByEdge)
+    {
+        if (proxyByEdge.TryGetValue((from, to), out string? proxyName))
+            return proxyName;
+
+        throw new InvalidOperationException(
+            $"No proxy found between '{from}' and '{to}'. " +
+            $"The target service '{to}' must have a 'proxy:' field and a connection from '{from}' to '{to}' must exist.");
     }
 }

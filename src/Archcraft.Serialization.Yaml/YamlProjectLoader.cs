@@ -32,7 +32,16 @@ public sealed class YamlProjectLoader : IProjectLoader
         List<AdapterDefinition> adapters = model.Adapters.Select(MapAdapter).ToList();
         List<ServiceDefinition> services = model.Services.Select(MapService).ToList();
         List<ConnectionDefinition> connections = model.Connections.Select(MapConnection).ToList();
-        List<ScenarioDefinition> scenarios = model.Scenarios.Select(MapScenario).ToList();
+
+        List<ScenarioDefinition> legacyScenarios = model.Scenarios
+            .Where(s => s.Timeline is null)
+            .Select(MapScenario)
+            .ToList();
+
+        List<TimelineScenarioDefinition> timelineScenarios = model.Scenarios
+            .Where(s => s.Timeline is not null)
+            .Select(MapTimelineScenario)
+            .ToList();
 
         return new ProjectDefinition
         {
@@ -40,7 +49,8 @@ public sealed class YamlProjectLoader : IProjectLoader
             Adapters = adapters,
             Services = services,
             Topology = new ServiceTopology(connections),
-            Scenarios = scenarios
+            Scenarios = legacyScenarios,
+            TimelineScenarios = timelineScenarios
         };
     }
 
@@ -130,6 +140,104 @@ public sealed class YamlProjectLoader : IProjectLoader
             ScenarioDuration = Duration.Parse(model.Duration),
             StartupTimeout = Duration.Parse(model.StartupTimeout)
         };
+
+    private static TimelineScenarioDefinition MapTimelineScenario(ScenarioModel model) =>
+        new()
+        {
+            Name = model.Name,
+            StartupTimeout = Duration.Parse(model.StartupTimeout),
+            Timeline = model.Timeline!.Select(MapTimelinePoint).ToList()
+        };
+
+    private static TimelinePoint MapTimelinePoint(TimelinePointModel model) =>
+        new()
+        {
+            At = ParseTimeSpan(model.At),
+            Actions = model.Actions.Select(MapTimelineAction).ToList()
+        };
+
+    private static TimeSpan ParseTimeSpan(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            throw new FormatException("Time string cannot be empty.");
+
+        TimeSpan total = TimeSpan.Zero;
+        int i = 0;
+
+        while (i < input.Length)
+        {
+            int start = i;
+            while (i < input.Length && char.IsDigit(input[i])) i++;
+            if (i == start)
+                throw new FormatException($"Expected digit at position {i} in time '{input}'.");
+
+            int number = int.Parse(input[start..i]);
+            if (i >= input.Length)
+                throw new FormatException($"Expected unit (s, m, h) after number in time '{input}'.");
+
+            char unit = input[i++];
+            total += unit switch
+            {
+                's' => TimeSpan.FromSeconds(number),
+                'm' => TimeSpan.FromMinutes(number),
+                'h' => TimeSpan.FromHours(number),
+                _ => throw new FormatException($"Unknown time unit '{unit}'.")
+            };
+        }
+
+        return total;
+    }
+
+    private static TimelineAction MapTimelineAction(TimelineActionModel model)
+    {
+        Duration? duration = model.Duration is not null ? Duration.Parse(model.Duration) : null;
+
+        return model.Type.ToLowerInvariant() switch
+        {
+            "load" => new LoadAction
+            {
+                Duration = duration,
+                Target = model.Target?.ToString() ?? string.Empty,
+                Endpoint = model.Endpoint ?? string.Empty,
+                Rps = model.Rps
+            },
+            "inject_latency" => new InjectLatencyAction
+            {
+                Duration = duration,
+                From = ReadTargetField(model.Target, "from"),
+                To = ReadTargetField(model.Target, "to"),
+                LatencyMs = ParseLatencyMs(model.Latency ?? "0ms")
+            },
+            "inject_error" => new InjectErrorAction
+            {
+                Duration = duration,
+                From = ReadTargetField(model.Target, "from"),
+                To = ReadTargetField(model.Target, "to"),
+                ErrorRate = model.ErrorRate
+            },
+            _ => throw new InvalidOperationException($"Unknown timeline action type '{model.Type}'. Supported: load, inject_latency, inject_error.")
+        };
+    }
+
+    private static string ReadTargetField(object? target, string field)
+    {
+        if (target is null)
+            throw new InvalidOperationException($"inject actions require a 'target' with 'from' and 'to' fields.");
+
+        if (target is Dictionary<object, object> dict && dict.TryGetValue(field, out object? value))
+            return value?.ToString() ?? string.Empty;
+
+        throw new InvalidOperationException($"inject action target is missing the '{field}' field.");
+    }
+
+    private static int ParseLatencyMs(string latency)
+    {
+        if (latency.EndsWith("ms", StringComparison.OrdinalIgnoreCase))
+            return int.Parse(latency[..^2]);
+        if (latency.EndsWith("s", StringComparison.OrdinalIgnoreCase))
+            return int.Parse(latency[..^1]) * 1000;
+        return int.Parse(latency);
+    }
 
     private static ConnectionProtocol ParseProtocol(string value) =>
         value.ToLowerInvariant() switch

@@ -1,5 +1,6 @@
 using Archcraft.Contracts;
 using Archcraft.Domain.Entities;
+using Archcraft.Scenarios;
 using Microsoft.Extensions.Logging;
 
 namespace Archcraft.App.UseCases;
@@ -12,6 +13,7 @@ public sealed class RunProjectUseCase
     private readonly IEnumerable<IScenarioRunner> _scenarioRunners;
     private readonly IMetricsCollector _metricsCollector;
     private readonly IReportBuilder _reportBuilder;
+    private readonly TimelineScenarioRunner _timelineRunner;
     private readonly ILogger<RunProjectUseCase> _logger;
 
     public RunProjectUseCase(
@@ -21,6 +23,7 @@ public sealed class RunProjectUseCase
         IEnumerable<IScenarioRunner> scenarioRunners,
         IMetricsCollector metricsCollector,
         IReportBuilder reportBuilder,
+        TimelineScenarioRunner timelineRunner,
         ILogger<RunProjectUseCase> logger)
     {
         _loader = loader;
@@ -29,6 +32,7 @@ public sealed class RunProjectUseCase
         _scenarioRunners = scenarioRunners;
         _metricsCollector = metricsCollector;
         _reportBuilder = reportBuilder;
+        _timelineRunner = timelineRunner;
         _logger = logger;
     }
 
@@ -40,11 +44,16 @@ public sealed class RunProjectUseCase
         ProjectDefinition project = await _loader.LoadAsync(projectFilePath, cancellationToken);
         ExecutionPlan plan = _compiler.Compile(project);
 
-        IReadOnlyList<ScenarioDefinition> scenariosToRun = scenarioName is null
+        IReadOnlyList<ScenarioDefinition> legacyScenariosToRun = scenarioName is null
             ? plan.Scenarios
-            : plan.Scenarios.Where(s => s.Name == scenarioName).ToList() is { Count: > 0 } filtered
-                ? filtered
-                : throw new InvalidOperationException($"Scenario '{scenarioName}' not found in project.");
+            : plan.Scenarios.Where(s => s.Name == scenarioName).ToList();
+
+        IReadOnlyList<TimelineScenarioDefinition> timelineScenariosToRun = scenarioName is null
+            ? plan.TimelineScenarios
+            : plan.TimelineScenarios.Where(s => s.Name == scenarioName).ToList();
+
+        if (legacyScenariosToRun.Count == 0 && timelineScenariosToRun.Count == 0 && scenarioName is not null)
+            throw new InvalidOperationException($"Scenario '{scenarioName}' not found in project.");
 
         List<MetricSnapshot> snapshots = [];
 
@@ -52,7 +61,7 @@ public sealed class RunProjectUseCase
         {
             await _environmentRunner.StartAsync(plan, cancellationToken);
 
-            foreach (ScenarioDefinition scenario in scenariosToRun)
+            foreach (ScenarioDefinition scenario in legacyScenariosToRun)
             {
                 ScenarioDefinition resolved = ResolveScenarioTarget(scenario, plan, _environmentRunner);
 
@@ -60,6 +69,12 @@ public sealed class RunProjectUseCase
                     ?? throw new InvalidOperationException($"No runner found for scenario type '{resolved.Type}'.");
 
                 MetricSnapshot snapshot = await runner.RunAsync(resolved, _metricsCollector, cancellationToken);
+                snapshots.Add(snapshot);
+            }
+
+            foreach (TimelineScenarioDefinition scenario in timelineScenariosToRun)
+            {
+                MetricSnapshot snapshot = await _timelineRunner.RunAsync(scenario, plan, cancellationToken);
                 snapshots.Add(snapshot);
             }
         }

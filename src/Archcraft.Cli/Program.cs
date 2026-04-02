@@ -19,8 +19,9 @@ services.AddHttpClient();
 services.AddSingleton<IProjectLoader, YamlProjectLoader>();
 services.AddSingleton<ITopologyValidator, TopologyValidator>();
 services.AddSingleton<IProjectCompiler, ArchcraftProjectCompiler>();
-services.AddTransient<IEnvironmentRunner, DockerEnvironmentRunner>();
+services.AddScoped<IEnvironmentRunner, DockerEnvironmentRunner>();
 services.AddTransient<IScenarioRunner, HttpScenarioRunner>();
+services.AddTransient<TimelineScenarioRunner>();
 services.AddTransient<IMetricsCollector, InMemoryMetricsCollector>();
 services.AddTransient<IReportBuilder, ObservabilityReportBuilder>();
 
