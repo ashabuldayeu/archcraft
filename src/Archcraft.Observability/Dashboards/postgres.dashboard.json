@@ -1,0 +1,116 @@
+{
+  "id": null,
+  "uid": "postgres-SERVICE_NAME",
+  "title": "SERVICE_NAME — PostgreSQL",
+  "schemaVersion": 38,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Active Connections",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "pg_stat_database_numbackends{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}",
+          "legendFormat": "{{datname}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Transactions / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_xact_commit_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m])",
+          "legendFormat": "Commits/s {{datname}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_xact_rollback_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m])",
+          "legendFormat": "Rollbacks/s {{datname}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Rows Fetched / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "rows/s", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_tup_fetched_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m])",
+          "legendFormat": "Fetched/s {{datname}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_tup_returned_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m])",
+          "legendFormat": "Returned/s {{datname}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Cache Hit Ratio",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_blks_hit_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m]) / (rate(pg_stat_database_blks_hit_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m]) + rate(pg_stat_database_blks_read_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m]) + 1)",
+          "legendFormat": "Hit Ratio {{datname}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Deadlocks / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "color": { "fixedColor": "red", "mode": "fixed" } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_deadlocks_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m])",
+          "legendFormat": "Deadlocks/s {{datname}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Temp Files Written / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(pg_stat_database_temp_files_total{job=\"SERVICE_NAME-exporter\",datname!~\"template.*|postgres\"}[1m])",
+          "legendFormat": "Temp files/s {{datname}}"
+        }
+      ]
+    }
+  ]
+}

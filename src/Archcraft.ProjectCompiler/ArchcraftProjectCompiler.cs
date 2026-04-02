@@ -54,6 +54,10 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         List<TimelineScenarioDefinition> compiledTimelines = CompileTimelineScenarios(
             project.TimelineScenarios, serviceByNameFinal, proxyByEdge);
 
+        ObservabilityDefinition? observability = project.Observability is null
+            ? null
+            : CompileObservability(project.Observability, orderedServices, project.Adapters);
+
         return new ExecutionPlan
         {
             ProjectName = project.Name,
@@ -63,7 +67,8 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
             Adapters = compiledAdapters,
             Scenarios = project.Scenarios,
             TimelineScenarios = compiledTimelines,
-            NetworkName = $"archcraft-{project.Name.ToLowerInvariant().Replace(' ', '-')}"
+            NetworkName = $"archcraft-{project.Name.ToLowerInvariant().Replace(' ', '-')}",
+            Observability = observability
         };
     }
 
@@ -317,5 +322,82 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         throw new InvalidOperationException(
             $"No proxy found between '{from}' and '{to}'. " +
             $"The target service '{to}' must have a 'proxy:' field and a connection from '{from}' to '{to}' must exist.");
+    }
+
+    private static ObservabilityDefinition CompileObservability(
+        ObservabilityDefinition observability,
+        IReadOnlyList<ServiceDefinition> services,
+        IReadOnlyList<AdapterDefinition> adapters)
+    {
+        WarnIfUnsupportedVersion(observability.Prometheus.Image, "Prometheus", new Version(2, 40, 0));
+        WarnIfUnsupportedVersion(observability.Grafana.Image, "Grafana", new Version(10, 0, 0));
+
+        Dictionary<string, ServiceDefinition> serviceByName = services.ToDictionary(s => s.Name);
+        List<ExporterDefinition> exporters = [];
+
+        foreach (AdapterDefinition adapter in adapters)
+        {
+            if (adapter.ConnectsTo is null || !serviceByName.TryGetValue(adapter.ConnectsTo, out ServiceDefinition? service))
+                continue;
+
+            ExporterDefinition? exporter = adapter.Technology.ToLowerInvariant() switch
+            {
+                "redis" => BuildRedisExporter(service),
+                "postgres" => BuildPostgresExporter(service),
+                _ => null
+            };
+
+            if (exporter is not null)
+                exporters.Add(exporter);
+        }
+
+        return observability with { Exporters = exporters };
+    }
+
+    private static ExporterDefinition BuildRedisExporter(ServiceDefinition service) =>
+        new()
+        {
+            Name = $"{service.Name}-exporter",
+            Image = "oliver006/redis_exporter:v1.67.0",
+            ServiceName = service.Name,
+            Technology = "redis",
+            ExporterPort = 9121,
+            Env = new Dictionary<string, string>
+            {
+                ["REDIS_ADDR"] = $"redis://{service.Name}:{service.Port.Value}"
+            }
+        };
+
+    private static ExporterDefinition BuildPostgresExporter(ServiceDefinition service)
+    {
+        service.Env.TryGetValue("POSTGRES_DB", out string? db);
+        service.Env.TryGetValue("POSTGRES_USER", out string? user);
+        service.Env.TryGetValue("POSTGRES_PASSWORD", out string? password);
+
+        return new()
+        {
+            Name = $"{service.Name}-exporter",
+            Image = "prometheuscommunity/postgres-exporter:v0.16.0",
+            ServiceName = service.Name,
+            Technology = "postgres",
+            ExporterPort = 9187,
+            Env = new Dictionary<string, string>
+            {
+                ["DATA_SOURCE_NAME"] = $"postgresql://{user}:{password}@{service.Name}:{service.Port.Value}/{db}?sslmode=disable"
+            }
+        };
+    }
+
+    private static void WarnIfUnsupportedVersion(string image, string name, Version minVersion)
+    {
+        int colonIndex = image.LastIndexOf(':');
+        if (colonIndex < 0) return;
+
+        string tag = image[(colonIndex + 1)..].TrimStart('v');
+        if (!Version.TryParse(tag, out Version? version)) return;
+
+        if (version < minVersion)
+            Console.Error.WriteLine(
+                $"[WARNING] {name} image '{image}' is below the minimum supported version {minVersion}. Some features may not work correctly.");
     }
 }

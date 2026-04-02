@@ -174,6 +174,109 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         return container;
     }
 
+    public async Task StartObservabilityAsync(
+        ExecutionPlan plan,
+        string projectDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (plan.Observability is null)
+            return;
+
+        ObservabilityDefinition obs = plan.Observability;
+        string dashboardsDir = Path.Combine(projectDirectory, "dashboards");
+
+        foreach (ExporterDefinition exporter in obs.Exporters)
+        {
+            _logger.LogInformation("Starting exporter '{ExporterName}' ({Image})...", exporter.Name, exporter.Image);
+            IContainer container = await StartExporterAsync(exporter, plan.NetworkName, cancellationToken);
+            _containers.Add(container);
+            _logger.LogInformation("Exporter '{ExporterName}' started.", exporter.Name);
+        }
+
+        _logger.LogInformation("Starting Prometheus ({Image})...", obs.Prometheus.Image);
+        IContainer prometheusContainer = await StartPrometheusAsync(
+            obs.Prometheus, dashboardsDir, plan.NetworkName, cancellationToken);
+        _containers.Add(prometheusContainer);
+        int promPort = prometheusContainer.GetMappedPublicPort(9090);
+        _logger.LogInformation("Prometheus ready at http://localhost:{Port}", promPort);
+
+        _logger.LogInformation("Starting Grafana ({Image})...", obs.Grafana.Image);
+        IContainer grafanaContainer = await StartGrafanaAsync(
+            obs.Grafana, dashboardsDir, plan.NetworkName, cancellationToken);
+        _containers.Add(grafanaContainer);
+        int grafanaPort = grafanaContainer.GetMappedPublicPort(obs.Grafana.Port);
+        _logger.LogInformation("Grafana ready at http://localhost:{Port}", grafanaPort);
+    }
+
+    private static async Task<IContainer> StartExporterAsync(
+        ExporterDefinition exporter,
+        string networkName,
+        CancellationToken cancellationToken)
+    {
+        ContainerBuilder builder = new ContainerBuilder(exporter.Image)
+            .WithNetwork(networkName)
+            .WithNetworkAliases(exporter.Name);
+
+        foreach ((string key, string value) in exporter.Env)
+            builder = builder.WithEnvironment(key, value);
+
+        IContainer container = builder.Build();
+        await container.StartAsync(cancellationToken);
+        return container;
+    }
+
+    private static async Task<IContainer> StartPrometheusAsync(
+        PrometheusConfig prometheus,
+        string dashboardsDir,
+        string networkName,
+        CancellationToken cancellationToken)
+    {
+        string configPath = Path.Combine(dashboardsDir, "prometheus.yml");
+
+        IContainer container = new ContainerBuilder(prometheus.Image)
+            .WithNetwork(networkName)
+            .WithNetworkAliases("prometheus")
+            .WithPortBinding(9090, true)
+            .WithResourceMapping(configPath, "/etc/prometheus/prometheus.yml")
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilHttpRequestIsSucceeded(req => req
+                    .ForPath("/api/v1/status/runtimeinfo")
+                    .ForPort(9090)))
+            .Build();
+
+        await container.StartAsync(cancellationToken);
+        return container;
+    }
+
+    private static async Task<IContainer> StartGrafanaAsync(
+        GrafanaConfig grafana,
+        string dashboardsDir,
+        string networkName,
+        CancellationToken cancellationToken)
+    {
+        string datasourcePath = Path.Combine(dashboardsDir, "provisioning", "datasources", "datasource.yml");
+        string dashboardProvPath = Path.Combine(dashboardsDir, "provisioning", "dashboards", "dashboards.yml");
+
+        IContainer container = new ContainerBuilder(grafana.Image)
+            .WithNetwork(networkName)
+            .WithNetworkAliases("grafana")
+            .WithPortBinding(grafana.Port, true)
+            .WithEnvironment("GF_AUTH_ANONYMOUS_ENABLED", "true")
+            .WithEnvironment("GF_AUTH_ANONYMOUS_ORG_ROLE", "Admin")
+            .WithEnvironment("GF_AUTH_DISABLE_LOGIN_FORM", "true")
+            .WithResourceMapping(datasourcePath, "/etc/grafana/provisioning/datasources/datasource.yml")
+            .WithResourceMapping(dashboardProvPath, "/etc/grafana/provisioning/dashboards/dashboards.yml")
+            .WithBindMount(dashboardsDir, "/var/lib/grafana/dashboards")
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilHttpRequestIsSucceeded(req => req
+                    .ForPath("/api/health")
+                    .ForPort((ushort)grafana.Port)))
+            .Build();
+
+        await container.StartAsync(cancellationToken);
+        return container;
+    }
+
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Stopping {Count} container(s)...", _containers.Count);

@@ -1,5 +1,6 @@
 using Archcraft.Contracts;
 using Archcraft.Domain.Entities;
+using Archcraft.Observability;
 using Archcraft.Scenarios;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,7 @@ public sealed class RunProjectUseCase
     private readonly IMetricsCollector _metricsCollector;
     private readonly IReportBuilder _reportBuilder;
     private readonly TimelineScenarioRunner _timelineRunner;
+    private readonly DashboardGenerator _dashboardGenerator;
     private readonly ILogger<RunProjectUseCase> _logger;
 
     public RunProjectUseCase(
@@ -24,6 +26,7 @@ public sealed class RunProjectUseCase
         IMetricsCollector metricsCollector,
         IReportBuilder reportBuilder,
         TimelineScenarioRunner timelineRunner,
+        DashboardGenerator dashboardGenerator,
         ILogger<RunProjectUseCase> logger)
     {
         _loader = loader;
@@ -33,6 +36,7 @@ public sealed class RunProjectUseCase
         _metricsCollector = metricsCollector;
         _reportBuilder = reportBuilder;
         _timelineRunner = timelineRunner;
+        _dashboardGenerator = dashboardGenerator;
         _logger = logger;
     }
 
@@ -43,6 +47,9 @@ public sealed class RunProjectUseCase
     {
         ProjectDefinition project = await _loader.LoadAsync(projectFilePath, cancellationToken);
         ExecutionPlan plan = _compiler.Compile(project);
+
+        string projectDirectory = Path.GetDirectoryName(projectFilePath)!;
+        await _dashboardGenerator.GenerateAsync(plan, projectDirectory);
 
         IReadOnlyList<ScenarioDefinition> legacyScenariosToRun = scenarioName is null
             ? plan.Scenarios
@@ -60,6 +67,7 @@ public sealed class RunProjectUseCase
         try
         {
             await _environmentRunner.StartAsync(plan, cancellationToken);
+            await _environmentRunner.StartObservabilityAsync(plan, projectDirectory, cancellationToken);
 
             foreach (ScenarioDefinition scenario in legacyScenariosToRun)
             {

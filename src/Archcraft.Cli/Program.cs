@@ -24,6 +24,7 @@ services.AddTransient<IScenarioRunner, HttpScenarioRunner>();
 services.AddTransient<TimelineScenarioRunner>();
 services.AddTransient<IMetricsCollector, InMemoryMetricsCollector>();
 services.AddTransient<IReportBuilder, ObservabilityReportBuilder>();
+services.AddTransient<DashboardGenerator>();
 
 services.AddArchcraftApp();
 

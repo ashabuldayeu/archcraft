@@ -50,7 +50,8 @@ public sealed class YamlProjectLoader : IProjectLoader
             Services = services,
             Topology = new ServiceTopology(connections),
             Scenarios = legacyScenarios,
-            TimelineScenarios = timelineScenarios
+            TimelineScenarios = timelineScenarios,
+            Observability = model.Observability is null ? null : MapObservability(model.Observability)
         };
     }
 
@@ -118,6 +119,21 @@ public sealed class YamlProjectLoader : IProjectLoader
             foreach (string op in ExtractOperationsFromSteps(step.Children)) yield return op;
         }
     }
+
+    private static ObservabilityDefinition MapObservability(ObservabilityModel model) =>
+        new()
+        {
+            Prometheus = new PrometheusConfig
+            {
+                Port = model.Prometheus?.Port ?? 9090,
+                Image = model.Prometheus?.Image ?? "prom/prometheus:v3.2.1"
+            },
+            Grafana = new GrafanaConfig
+            {
+                Port = model.Grafana?.Port ?? 3000,
+                Image = model.Grafana?.Image ?? "grafana/grafana:11.5.2"
+            }
+        };
 
     private static ConnectionDefinition MapConnection(ConnectionModel model) =>
         new()

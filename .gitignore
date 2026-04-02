@@ -364,3 +364,7 @@ FodyWeavers.xsd
 
 # Archcraft run results
 **/results/
+
+# Archcraft generated dashboards (but not embedded source templates)
+**/dashboards/
+!src/**/Dashboards/

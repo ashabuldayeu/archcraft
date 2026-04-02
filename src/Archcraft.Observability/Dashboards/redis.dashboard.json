@@ -1,0 +1,100 @@
+{
+  "id": null,
+  "uid": "redis-SERVICE_NAME",
+  "title": "SERVICE_NAME — Redis",
+  "schemaVersion": 38,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Memory Used",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "redis_memory_used_bytes{job=\"SERVICE_NAME-exporter\"}",
+          "legendFormat": "Used"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "redis_memory_max_bytes{job=\"SERVICE_NAME-exporter\"}",
+          "legendFormat": "Max"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Commands / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(redis_commands_processed_total{job=\"SERVICE_NAME-exporter\"}[1m])",
+          "legendFormat": "Ops/s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Cache Hit Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(redis_keyspace_hits_total{job=\"SERVICE_NAME-exporter\"}[1m]) / (rate(redis_keyspace_hits_total{job=\"SERVICE_NAME-exporter\"}[1m]) + rate(redis_keyspace_misses_total{job=\"SERVICE_NAME-exporter\"}[1m]) + 1)",
+          "legendFormat": "Hit Rate"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Connected Clients",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "redis_connected_clients{job=\"SERVICE_NAME-exporter\"}",
+          "legendFormat": "Clients"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Network I/O",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(redis_net_input_bytes_total{job=\"SERVICE_NAME-exporter\"}[1m])",
+          "legendFormat": "Input"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(redis_net_output_bytes_total{job=\"SERVICE_NAME-exporter\"}[1m])",
+          "legendFormat": "Output"
+        }
+      ]
+    }
+  ]
+}

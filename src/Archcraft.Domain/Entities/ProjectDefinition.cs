@@ -8,4 +8,5 @@ public sealed record ProjectDefinition
     public required ServiceTopology Topology { get; init; }
     public required IReadOnlyList<ScenarioDefinition> Scenarios { get; init; }
     public IReadOnlyList<TimelineScenarioDefinition> TimelineScenarios { get; init; } = [];
+    public ObservabilityDefinition? Observability { get; init; }
 }

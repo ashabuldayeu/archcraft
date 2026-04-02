@@ -5,6 +5,11 @@
     <ProjectReference Include="..\Archcraft.Contracts\Archcraft.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Dashboards\*.json" />
+    <EmbeddedResource Include="Templates\*.yml" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

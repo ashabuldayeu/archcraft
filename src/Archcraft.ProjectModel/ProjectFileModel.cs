@@ -18,4 +18,7 @@ public sealed class ProjectFileModel
 
     [YamlMember(Alias = "scenarios")]
     public List<ScenarioModel> Scenarios { get; set; } = [];
+
+    [YamlMember(Alias = "observability")]
+    public ObservabilityModel? Observability { get; set; }
 }

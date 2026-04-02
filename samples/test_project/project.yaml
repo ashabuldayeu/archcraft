@@ -104,7 +104,7 @@ scenarios:
     startup_timeout: 90s
 
   - name: redis-degradation
-    startup_timeout: 90s
+    startup_timeout: 120s
     timeline:
       - at: 0s
         actions:
@@ -120,3 +120,11 @@ scenarios:
               from: backend
               to: redis
             latency: 300ms
+
+# ── Observability ─────────────────────────────────────────────────────────────
+
+observability:
+  prometheus:
+    port: 9090
+  grafana:
+    port: 3000

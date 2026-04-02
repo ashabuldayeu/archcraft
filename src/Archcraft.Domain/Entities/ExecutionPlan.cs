@@ -17,4 +17,5 @@ public sealed record ExecutionPlan
     public IReadOnlyList<TimelineScenarioDefinition> TimelineScenarios { get; init; } = [];
 
     public required string NetworkName { get; init; }
+    public ObservabilityDefinition? Observability { get; init; }
 }

@@ -1,0 +1,100 @@
+{
+  "id": null,
+  "uid": "synthetic-SERVICE_NAME",
+  "title": "SERVICE_NAME — Synthetic Service",
+  "schemaVersion": 38,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request Rate (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_request_duration_seconds_count{job=\"SERVICE_NAME\"}[1m])",
+          "legendFormat": "RPS"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency p50 / p99 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.5, rate(http_server_request_duration_seconds_bucket{job=\"SERVICE_NAME\"}[1m])) * 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, rate(http_server_request_duration_seconds_bucket{job=\"SERVICE_NAME\"}[1m])) * 1000",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "5xx Error Rate (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0, "color": { "fixedColor": "red", "mode": "fixed" } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_request_duration_seconds_count{job=\"SERVICE_NAME\",http_response_status_code=~\"5..\"}[1m])",
+          "legendFormat": "Errors/s"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Operations / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(operation_calls_total{job=\"SERVICE_NAME\"}[1m])",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Operation Latency p50 / p99 (ms)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.5, rate(operation_duration_seconds_bucket{job=\"SERVICE_NAME\"}[1m])) * 1000",
+          "legendFormat": "p50 {{operation}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, rate(operation_duration_seconds_bucket{job=\"SERVICE_NAME\"}[1m])) * 1000",
+          "legendFormat": "p99 {{operation}}"
+        }
+      ]
+    }
+  ]
+}
