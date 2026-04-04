@@ -14,6 +14,7 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
 {
     private readonly ILogger<DockerEnvironmentRunner> _logger;
     private readonly List<IContainer> _containers = [];
+    private readonly Dictionary<string, IContainer> _containerByServiceName = new();
     private readonly EnvironmentContext _context = new();
     private INetwork? _network;
 
@@ -41,12 +42,17 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             string host = container.Hostname;
             int mappedPort = container.GetMappedPublicPort(service.Port.Value);
 
-            _context.Register(new RunningService
+            RunningService runningService = new()
             {
                 Name = service.Name,
                 Host = host,
                 MappedPort = mappedPort
-            });
+            };
+            _context.Register(runningService);
+            _containerByServiceName[service.Name] = container;
+
+            if (service.ServiceGroup is not null)
+                _context.RegisterGroup(service.ServiceGroup, service.Name);
 
             _logger.LogInformation("Service '{ServiceName}' ready at {Host}:{Port}.", service.Name, host, mappedPort);
         }
@@ -91,9 +97,14 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         string networkName,
         CancellationToken cancellationToken)
     {
+        // Per-replica proxies get both their unique name and the shared group alias for DNS RR
+        string[] aliases = proxy.ServiceGroup != proxy.Name
+            ? [proxy.Name, proxy.ServiceGroup]
+            : [proxy.Name];
+
         IContainer container = new ContainerBuilder(ToxiProxyImage)
             .WithNetwork(networkName)
-            .WithNetworkAliases(proxy.Name)
+            .WithNetworkAliases(aliases)
             .WithPortBinding(ToxiProxyApiPort, true)
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(req => req
@@ -291,6 +302,29 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
     {
         RunningService service = _context.Get(serviceName);
         return service.Address;
+    }
+
+    public IReadOnlyList<string> GetGroupAddresses(string groupName) =>
+        _context.GetGroup(groupName).Select(s => s.Address).ToList();
+
+    public async Task KillReplicaAsync(string replicaName, CancellationToken cancellationToken = default)
+    {
+        if (!_containerByServiceName.TryGetValue(replicaName, out IContainer? container))
+            throw new InvalidOperationException($"No container found for replica '{replicaName}'.");
+
+        _logger.LogInformation("Killing replica '{ReplicaName}'...", replicaName);
+        await container.StopAsync(cancellationToken);
+        _logger.LogInformation("Replica '{ReplicaName}' killed.", replicaName);
+    }
+
+    public async Task RestoreReplicaAsync(string replicaName, CancellationToken cancellationToken = default)
+    {
+        if (!_containerByServiceName.TryGetValue(replicaName, out IContainer? container))
+            throw new InvalidOperationException($"No container found for replica '{replicaName}'.");
+
+        _logger.LogInformation("Restoring replica '{ReplicaName}'...", replicaName);
+        await container.StartAsync(cancellationToken);
+        _logger.LogInformation("Replica '{ReplicaName}' restored.", replicaName);
     }
 
     public string GetProxyApiUrl(string proxyName)

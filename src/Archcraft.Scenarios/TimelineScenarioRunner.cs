@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using Archcraft.Contracts;
@@ -9,15 +10,15 @@ namespace Archcraft.Scenarios;
 
 public sealed class TimelineScenarioRunner
 {
-    private const int ToxiProxyApiPort = 8474;
-
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IEnvironmentRunner _environmentRunner;
     private readonly IMetricsCollector _collector;
     private readonly ILogger<TimelineScenarioRunner> _logger;
 
-    // active load tasks per target
+    // Active load tasks per target key
     private readonly Dictionary<string, CancellationTokenSource> _loadCts = new();
+    // Per-replica metric collectors (keyed by replica address)
+    private readonly Dictionary<string, ConcurrentBag<(double LatencyMs, bool IsSuccess)>> _replicaRecords = new();
 
     public TimelineScenarioRunner(
         IHttpClientFactory httpClientFactory,
@@ -37,6 +38,7 @@ public sealed class TimelineScenarioRunner
         CancellationToken cancellationToken = default)
     {
         _collector.Reset();
+        _replicaRecords.Clear();
 
         await WaitForSyntheticServicesAsync(scenario, plan, cancellationToken);
 
@@ -45,7 +47,6 @@ public sealed class TimelineScenarioRunner
         Stopwatch scenarioTimer = Stopwatch.StartNew();
         List<Task> rollbackTasks = [];
 
-        // Sort points by At
         List<TimelinePoint> points = scenario.Timeline.OrderBy(p => p.At).ToList();
 
         foreach (TimelinePoint point in points)
@@ -65,16 +66,16 @@ public sealed class TimelineScenarioRunner
             }
         }
 
-        // Wait for all rollback timers
         await Task.WhenAll(rollbackTasks);
 
-        // Stop any remaining load
         foreach (CancellationTokenSource cts in _loadCts.Values)
             cts.Cancel();
 
         await Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken.None);
 
         (double p50, double p99, double errorRate, int total, IReadOnlyList<double> raw) = _collector.GetStats();
+
+        Dictionary<string, MetricSnapshot>? replicaSnapshots = BuildReplicaSnapshots(scenario.Name);
 
         return new MetricSnapshot
         {
@@ -83,7 +84,8 @@ public sealed class TimelineScenarioRunner
             P99Ms = p99,
             ErrorRate = errorRate,
             TotalRequests = total,
-            RawLatenciesMs = raw
+            RawLatenciesMs = raw,
+            ReplicaSnapshots = replicaSnapshots is { Count: > 0 } ? replicaSnapshots : null
         };
     }
 
@@ -95,7 +97,7 @@ public sealed class TimelineScenarioRunner
         switch (action)
         {
             case LoadAction load:
-                StartLoad(load, plan);
+                StartLoad(load);
                 if (load.Duration.HasValue)
                     return StopLoadAfterAsync(load.Target, load.Duration.Value.Value, cancellationToken);
                 return null;
@@ -103,13 +105,23 @@ public sealed class TimelineScenarioRunner
             case InjectLatencyAction latency:
                 await InjectLatencyAsync(latency, cancellationToken);
                 if (latency.Duration.HasValue)
-                    return RemoveToxicAfterAsync(latency.ProxyName!, "latency-inject", latency.Duration.Value.Value, cancellationToken);
+                    return RemoveToxicsAfterAsync(latency.ProxyNames, "latency-inject", latency.Duration.Value.Value, cancellationToken);
                 return null;
 
             case InjectErrorAction error:
                 await InjectErrorAsync(error, cancellationToken);
                 if (error.Duration.HasValue)
-                    return RemoveToxicAfterAsync(error.ProxyName!, "error-inject", error.Duration.Value.Value, cancellationToken);
+                    return RemoveToxicsAfterAsync(error.ProxyNames, "error-inject", error.Duration.Value.Value, cancellationToken);
+                return null;
+
+            case KillAction kill:
+                await _environmentRunner.KillReplicaAsync(kill.ResolvedReplicaName!, cancellationToken);
+                if (kill.Duration.HasValue)
+                    return RestoreAfterAsync(kill.ResolvedReplicaName!, kill.Duration.Value.Value, cancellationToken);
+                return null;
+
+            case RestoreAction restore:
+                await _environmentRunner.RestoreReplicaAsync(restore.ResolvedReplicaName!, cancellationToken);
                 return null;
 
             default:
@@ -117,34 +129,47 @@ public sealed class TimelineScenarioRunner
         }
     }
 
-    private void StartLoad(LoadAction load, ExecutionPlan plan)
+    // ── Load ──────────────────────────────────────────────────────────────────
+
+    private void StartLoad(LoadAction load)
     {
-        // Cancel existing load for same target
         if (_loadCts.TryGetValue(load.Target, out CancellationTokenSource? existing))
         {
             existing.Cancel();
             _loadCts.Remove(load.Target);
         }
 
-        string mappedAddress = _environmentRunner.GetMappedAddress(load.Target);
-        string url = $"http://{mappedAddress}/{load.Endpoint}";
+        // Resolve all addresses for this target (single or group RR)
+        IReadOnlyList<string> addresses = _environmentRunner.GetGroupAddresses(load.Target);
+        string url = $"http://{addresses[0]}/{load.Endpoint}";
 
         CancellationTokenSource cts = new();
         _loadCts[load.Target] = cts;
 
-        _ = RunLoadLoopAsync(url, load.Rps, cts.Token);
+        _ = RunLoadLoopAsync(addresses, load.Endpoint, load.Rps, cts.Token);
 
-        _logger.LogInformation("Load started: {Rps} RPS → {Url}", load.Rps, url);
+        _logger.LogInformation("Load started: {Rps} RPS → {Target} ({Count} replica(s))",
+            load.Rps, load.Target, addresses.Count);
     }
 
-    private async Task RunLoadLoopAsync(string url, int rps, CancellationToken cancellationToken)
+    private async Task RunLoadLoopAsync(
+        IReadOnlyList<string> addresses,
+        string endpoint,
+        int rps,
+        CancellationToken cancellationToken)
     {
         TimeSpan interval = TimeSpan.FromMilliseconds(1000.0 / rps);
+        int index = 0;
 
         while (!cancellationToken.IsCancellationRequested)
         {
             Stopwatch requestTimer = Stopwatch.StartNew();
-            _ = FireRequestAsync(url, cancellationToken);
+
+            string address = addresses[index % addresses.Count];
+            index++;
+            string url = $"http://{address}/{endpoint}";
+
+            _ = FireRequestAsync(url, address, cancellationToken);
 
             TimeSpan wait = interval - requestTimer.Elapsed;
             if (wait > TimeSpan.Zero)
@@ -155,7 +180,7 @@ public sealed class TimelineScenarioRunner
         }
     }
 
-    private async Task FireRequestAsync(string url, CancellationToken cancellationToken)
+    private async Task FireRequestAsync(string url, string replicaAddress, CancellationToken cancellationToken)
     {
         using HttpClient client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(10);
@@ -176,6 +201,17 @@ public sealed class TimelineScenarioRunner
         }
 
         _collector.RecordRequest(timer.Elapsed, success);
+        RecordReplicaRequest(replicaAddress, timer.Elapsed, success);
+    }
+
+    private void RecordReplicaRequest(string replicaAddress, TimeSpan latency, bool isSuccess)
+    {
+        if (!_replicaRecords.TryGetValue(replicaAddress, out ConcurrentBag<(double, bool)>? bag))
+        {
+            bag = [];
+            _replicaRecords[replicaAddress] = bag;
+        }
+        bag.Add((latency.TotalMilliseconds, isSuccess));
     }
 
     private async Task StopLoadAfterAsync(string target, TimeSpan duration, CancellationToken cancellationToken)
@@ -185,42 +221,46 @@ public sealed class TimelineScenarioRunner
         {
             cts.Cancel();
             _loadCts.Remove(target);
-            _logger.LogInformation("Load stopped for target '{Target}' after {Duration}", target, duration);
+            _logger.LogInformation("Load stopped for '{Target}' after {Duration}", target, duration);
         }
     }
 
+    // ── Inject ────────────────────────────────────────────────────────────────
+
     private async Task InjectLatencyAsync(InjectLatencyAction action, CancellationToken cancellationToken)
     {
-        string apiUrl = _environmentRunner.GetProxyApiUrl(action.ProxyName!);
-
-        object toxic = new
+        foreach (string proxyName in action.ProxyNames)
         {
-            name = "latency-inject",
-            type = "latency",
-            stream = "downstream",
-            toxicity = 1.0,
-            attributes = new { latency = action.LatencyMs, jitter = 0 }
-        };
-
-        await PostToxicAsync(apiUrl, action.ProxyName!, toxic, cancellationToken);
-        _logger.LogInformation("Injected latency {LatencyMs}ms on proxy '{Proxy}'", action.LatencyMs, action.ProxyName);
+            string apiUrl = _environmentRunner.GetProxyApiUrl(proxyName);
+            object toxic = new
+            {
+                name = "latency-inject",
+                type = "latency",
+                stream = "downstream",
+                toxicity = 1.0,
+                attributes = new { latency = action.LatencyMs, jitter = 0 }
+            };
+            await PostToxicAsync(apiUrl, proxyName, toxic, cancellationToken);
+            _logger.LogInformation("Injected latency {LatencyMs}ms on proxy '{Proxy}'", action.LatencyMs, proxyName);
+        }
     }
 
     private async Task InjectErrorAsync(InjectErrorAction action, CancellationToken cancellationToken)
     {
-        string apiUrl = _environmentRunner.GetProxyApiUrl(action.ProxyName!);
-
-        object toxic = new
+        foreach (string proxyName in action.ProxyNames)
         {
-            name = "error-inject",
-            type = "reset_peer",
-            stream = "downstream",
-            toxicity = action.ErrorRate,
-            attributes = new { }
-        };
-
-        await PostToxicAsync(apiUrl, action.ProxyName!, toxic, cancellationToken);
-        _logger.LogInformation("Injected error rate {Rate} on proxy '{Proxy}'", action.ErrorRate, action.ProxyName);
+            string apiUrl = _environmentRunner.GetProxyApiUrl(proxyName);
+            object toxic = new
+            {
+                name = "error-inject",
+                type = "reset_peer",
+                stream = "downstream",
+                toxicity = action.ErrorRate,
+                attributes = new { }
+            };
+            await PostToxicAsync(apiUrl, proxyName, toxic, cancellationToken);
+            _logger.LogInformation("Injected error rate {Rate} on proxy '{Proxy}'", action.ErrorRate, proxyName);
+        }
     }
 
     private async Task PostToxicAsync(string apiUrl, string proxyName, object toxic, CancellationToken cancellationToken)
@@ -231,21 +271,69 @@ public sealed class TimelineScenarioRunner
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task RemoveToxicAfterAsync(
-        string proxyName,
+    private async Task RemoveToxicsAfterAsync(
+        IReadOnlyList<string> proxyNames,
         string toxicName,
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
         await Task.Delay(duration, cancellationToken);
 
-        string apiUrl = _environmentRunner.GetProxyApiUrl(proxyName);
-        using HttpClient client = _httpClientFactory.CreateClient();
-        await client.DeleteAsync($"{apiUrl}/proxies/{proxyName}/toxics/{toxicName}", CancellationToken.None);
-
-        _logger.LogInformation("Removed toxic '{ToxicName}' from proxy '{Proxy}' after {Duration}",
-            toxicName, proxyName, duration);
+        foreach (string proxyName in proxyNames)
+        {
+            string apiUrl = _environmentRunner.GetProxyApiUrl(proxyName);
+            using HttpClient client = _httpClientFactory.CreateClient();
+            await client.DeleteAsync($"{apiUrl}/proxies/{proxyName}/toxics/{toxicName}", CancellationToken.None);
+            _logger.LogInformation("Removed toxic '{ToxicName}' from proxy '{Proxy}'", toxicName, proxyName);
+        }
     }
+
+    // ── Kill / Restore ────────────────────────────────────────────────────────
+
+    private async Task RestoreAfterAsync(string replicaName, TimeSpan duration, CancellationToken cancellationToken)
+    {
+        await Task.Delay(duration, cancellationToken);
+        await _environmentRunner.RestoreReplicaAsync(replicaName, CancellationToken.None);
+        _logger.LogInformation("Auto-restored replica '{ReplicaName}' after {Duration}", replicaName, duration);
+    }
+
+    // ── Metrics ───────────────────────────────────────────────────────────────
+
+    private Dictionary<string, MetricSnapshot>? BuildReplicaSnapshots(string scenarioName)
+    {
+        if (_replicaRecords.Count <= 1) return null;
+
+        Dictionary<string, MetricSnapshot> result = new();
+        foreach ((string address, ConcurrentBag<(double LatencyMs, bool IsSuccess)> bag) in _replicaRecords)
+        {
+            List<(double LatencyMs, bool IsSuccess)> records = [.. bag];
+            if (records.Count == 0) continue;
+
+            List<double> latencies = records.Select(r => r.LatencyMs).Order().ToList();
+            int failures = records.Count(r => !r.IsSuccess);
+
+            result[address] = new MetricSnapshot
+            {
+                ScenarioName = scenarioName,
+                P50Ms = Percentile(latencies, 0.50),
+                P99Ms = Percentile(latencies, 0.99),
+                ErrorRate = (double)failures / records.Count,
+                TotalRequests = records.Count,
+                RawLatenciesMs = latencies
+            };
+        }
+
+        return result;
+    }
+
+    private static double Percentile(List<double> sorted, double p)
+    {
+        if (sorted.Count == 0) return 0;
+        int index = (int)Math.Ceiling(p * sorted.Count) - 1;
+        return sorted[Math.Clamp(index, 0, sorted.Count - 1)];
+    }
+
+    // ── Startup wait ──────────────────────────────────────────────────────────
 
     private async Task WaitForSyntheticServicesAsync(
         TimelineScenarioDefinition scenario,
@@ -266,27 +354,33 @@ public sealed class TimelineScenarioRunner
 
         foreach (string target in loadTargets)
         {
-            string mappedAddress = _environmentRunner.GetMappedAddress(target);
-            string healthUrl = $"http://{mappedAddress}/health";
+            // For group targets, wait for all replicas
+            IReadOnlyList<string> addresses = _environmentRunner.GetGroupAddresses(target);
 
-            _logger.LogInformation("Waiting for '{Target}' at {Url} (timeout: {Timeout})...",
-                target, healthUrl, timeout);
-
-            while (stopwatch.Elapsed < timeout)
+            foreach (string address in addresses)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
+                string healthUrl = $"http://{address}/health";
+
+                _logger.LogInformation("Waiting for '{Target}' at {Url} (timeout: {Timeout})...",
+                    target, healthUrl, timeout);
+
+                while (stopwatch.Elapsed < timeout)
                 {
-                    HttpResponseMessage response = await client.GetAsync(healthUrl, cancellationToken);
-                    if (response.IsSuccessStatusCode) break;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        HttpResponseMessage response = await client.GetAsync(healthUrl, cancellationToken);
+                        if (response.IsSuccessStatusCode) break;
+                    }
+                    catch { /* retry */ }
+
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
                 }
-                catch { /* retry */ }
 
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+                if (stopwatch.Elapsed >= timeout)
+                    throw new TimeoutException(
+                        $"Service '{target}' at '{address}' did not become available within {timeout.TotalSeconds}s.");
             }
-
-            if (stopwatch.Elapsed >= timeout)
-                throw new TimeoutException($"Service '{target}' did not become available within {timeout.TotalSeconds}s.");
         }
     }
 }

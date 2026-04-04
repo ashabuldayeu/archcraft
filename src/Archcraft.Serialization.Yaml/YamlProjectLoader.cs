@@ -78,6 +78,7 @@ public sealed class YamlProjectLoader : IProjectLoader
                 Path = model.Readiness.Path,
                 Timeout = Duration.Parse(model.Readiness.Timeout)
             },
+            Replicas = model.Replicas < 1 ? 1 : model.Replicas,
             SyntheticAdapters = model.Synthetic?.Adapters ?? [],
             SyntheticOperations = model.Synthetic is null
                 ? []
@@ -231,7 +232,16 @@ public sealed class YamlProjectLoader : IProjectLoader
                 To = ReadTargetField(model.Target, "to"),
                 ErrorRate = model.ErrorRate
             },
-            _ => throw new InvalidOperationException($"Unknown timeline action type '{model.Type}'. Supported: load, inject_latency, inject_error.")
+            "kill" => new KillAction
+            {
+                Duration = duration,
+                Target = model.Target?.ToString() ?? string.Empty
+            },
+            "restore" => new RestoreAction
+            {
+                Target = model.Target?.ToString() ?? string.Empty
+            },
+            _ => throw new InvalidOperationException($"Unknown timeline action type '{model.Type}'. Supported: load, inject_latency, inject_error, kill, restore.")
         };
     }
 

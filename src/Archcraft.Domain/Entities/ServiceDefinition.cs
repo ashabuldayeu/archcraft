@@ -13,4 +13,7 @@ public sealed record ServiceDefinition
     public IReadOnlyList<string> SyntheticAdapters { get; init; } = [];
     public IReadOnlyList<string> SyntheticOperations { get; init; } = [];
     public IReadOnlyList<SyntheticEndpoint> SyntheticEndpoints { get; init; } = [];
+    public int Replicas { get; init; } = 1;
+    /// <summary>Original service group name before replica expansion. Null for non-replicated services.</summary>
+    public string? ServiceGroup { get; init; }
 }

@@ -18,7 +18,7 @@ public sealed record InjectLatencyAction : TimelineAction
 {
     public required string From { get; init; }
     public required string To { get; init; }
-    public string? ProxyName { get; init; }
+    public IReadOnlyList<string> ProxyNames { get; init; } = [];
     public required int LatencyMs { get; init; }
 }
 
@@ -26,6 +26,18 @@ public sealed record InjectErrorAction : TimelineAction
 {
     public required string From { get; init; }
     public required string To { get; init; }
-    public string? ProxyName { get; init; }
+    public IReadOnlyList<string> ProxyNames { get; init; } = [];
     public required double ErrorRate { get; init; }
+}
+
+public sealed record KillAction : TimelineAction
+{
+    public required string Target { get; init; }
+    public string? ResolvedReplicaName { get; init; }
+}
+
+public sealed record RestoreAction : TimelineAction
+{
+    public required string Target { get; init; }
+    public string? ResolvedReplicaName { get; init; }
 }

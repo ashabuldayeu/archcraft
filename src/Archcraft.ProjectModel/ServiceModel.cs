@@ -22,6 +22,9 @@ public sealed class ServiceModel
     [YamlMember(Alias = "proxy")]
     public string? Proxy { get; set; }
 
+    [YamlMember(Alias = "replicas")]
+    public int Replicas { get; set; } = 1;
+
     [YamlMember(Alias = "synthetic")]
     public SyntheticServiceModel? Synthetic { get; set; }
 }

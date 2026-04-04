@@ -4,9 +4,20 @@ public sealed class EnvironmentContext
 {
     private readonly Dictionary<string, RunningService> _services = new();
     private readonly Dictionary<string, RunningProxy> _proxies = new();
+    private readonly Dictionary<string, List<string>> _serviceGroups = new();
 
     public void Register(RunningService service) =>
         _services[service.Name] = service;
+
+    public void RegisterGroup(string groupName, string replicaName)
+    {
+        if (!_serviceGroups.TryGetValue(groupName, out List<string>? replicas))
+        {
+            replicas = [];
+            _serviceGroups[groupName] = replicas;
+        }
+        replicas.Add(replicaName);
+    }
 
     public RunningService Get(string serviceName) =>
         _services.TryGetValue(serviceName, out RunningService? service)
@@ -15,6 +26,20 @@ public sealed class EnvironmentContext
 
     public bool TryGet(string serviceName, out RunningService? service) =>
         _services.TryGetValue(serviceName, out service);
+
+    public IReadOnlyList<RunningService> GetGroup(string groupName)
+    {
+        if (_serviceGroups.TryGetValue(groupName, out List<string>? replicaNames))
+            return replicaNames.Select(Get).ToList();
+
+        // Single-instance service — treat it as its own group
+        if (_services.TryGetValue(groupName, out RunningService? single))
+            return [single];
+
+        throw new InvalidOperationException($"No services found for group '{groupName}'.");
+    }
+
+    public bool IsGroup(string name) => _serviceGroups.ContainsKey(name);
 
     public IReadOnlyCollection<RunningService> AllServices => _services.Values;
 

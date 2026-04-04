@@ -10,4 +10,7 @@ public sealed record MetricSnapshot
 
     /// <summary>Raw latency measurements in milliseconds for histogram.</summary>
     public required IReadOnlyList<double> RawLatenciesMs { get; init; }
+
+    /// <summary>Per-replica breakdown. Null when service has a single instance.</summary>
+    public IReadOnlyDictionary<string, MetricSnapshot>? ReplicaSnapshots { get; init; }
 }

@@ -22,6 +22,8 @@ services:
   - name: backend
     image: archcraft/synthetic:latest
     port: 8080
+    replicas: 3
+    proxy: backend-proxy
     readiness:
       path: /health
       timeout: 30s
@@ -120,6 +122,29 @@ scenarios:
               from: backend
               to: redis
             latency: 300ms
+
+  - name: replica-kill
+    startup_timeout: 120s
+    timeline:
+      - at: 0s
+        actions:
+          - type: load
+            target: frontend
+            endpoint: handle
+            rps: 30
+      - at: 5s
+        actions:
+          - type: kill
+            target: backend[1]
+            duration: 15s
+      - at: 10s
+        actions:
+          - type: inject_latency
+            duration: 5s
+            target:
+              from: frontend
+              to: backend[2]
+            latency: 500ms
 
 # ── Observability ─────────────────────────────────────────────────────────────
 
