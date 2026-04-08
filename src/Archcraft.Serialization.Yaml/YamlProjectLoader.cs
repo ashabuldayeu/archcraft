@@ -79,6 +79,12 @@ public sealed class YamlProjectLoader : IProjectLoader
                 Timeout = Duration.Parse(model.Readiness.Timeout)
             },
             Replicas = model.Replicas < 1 ? 1 : model.Replicas,
+            Cluster = model.Cluster is null ? null : new ClusterDefinition
+            {
+                Replicas = model.Cluster.Replicas < 1 ? 1 : model.Cluster.Replicas,
+                ReplicationUser = model.Cluster.ReplicationUser ?? "replicator",
+                ReplicationPassword = model.Cluster.ReplicationPassword ?? "replicator_password"
+            },
             SyntheticAdapters = model.Synthetic?.Adapters ?? [],
             SyntheticOperations = model.Synthetic is null
                 ? []

@@ -4,18 +4,25 @@ name: test-project
 
 services:
   - name: redis
-    image: redis:7
+    image: bitnami/redis:latest
     port: 6379
     proxy: redis-proxy
+    cluster:
+      replicas: 1
+      replication_password: repl_secret
 
   - name: postgres
-    image: postgres:16
+    image: bitnami/postgresql:latest
     port: 5432
     proxy: pg-proxy
+    cluster:
+      replicas: 1
+      replication_user: replicator
+      replication_password: repl_secret
     env:
-      POSTGRES_DB: archcraft
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: secret
+      POSTGRESQL_DATABASE: archcraft
+      POSTGRESQL_USERNAME: user
+      POSTGRESQL_PASSWORD: secret
 
 # ── Synthetic-сервисы ────────────────────────────────────────────────────────
 

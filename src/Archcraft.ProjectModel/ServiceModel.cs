@@ -27,4 +27,7 @@ public sealed class ServiceModel
 
     [YamlMember(Alias = "synthetic")]
     public SyntheticServiceModel? Synthetic { get; set; }
+
+    [YamlMember(Alias = "cluster")]
+    public ClusterModel? Cluster { get; set; }
 }

@@ -20,6 +20,7 @@ public sealed class TopologyValidator : ITopologyValidator
     {
         List<string> errors = [];
 
+        ValidateClusterServices(services, errors);
         ValidateConnections(topology, services, errors);
         ValidateAdapterRefs(services, adapters, errors);
         ValidateOperationTechnologies(services, adapters, errors);
@@ -39,12 +40,31 @@ public sealed class TopologyValidator : ITopologyValidator
         return errors.Count == 0 ? ValidationResult.Success() : ValidationResult.Failure(errors);
     }
 
+    private static void ValidateClusterServices(IReadOnlyList<ServiceDefinition> services, List<string> errors)
+    {
+        foreach (ServiceDefinition service in services)
+        {
+            if (service.Cluster is not null && service.SyntheticAdapters.Count > 0)
+                errors.Add(
+                    $"Service '{service.Name}' cannot have both 'cluster:' and 'synthetic:' configuration.");
+        }
+    }
+
     private static void ValidateConnections(
         ServiceTopology topology,
         IReadOnlyList<ServiceDefinition> services,
         List<string> errors)
     {
         HashSet<string> knownNames = services.Select(s => s.Name).ToHashSet();
+
+        // Cluster-expanded node names are valid connection targets
+        foreach (ServiceDefinition service in services)
+        {
+            if (service.Cluster is null) continue;
+            knownNames.Add($"{service.Name}-primary");
+            for (int i = 0; i < service.Cluster.Replicas; i++)
+                knownNames.Add($"{service.Name}-replica-{i}");
+        }
 
         foreach (ConnectionDefinition connection in topology.Connections)
         {

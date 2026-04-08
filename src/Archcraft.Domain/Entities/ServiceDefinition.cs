@@ -16,4 +16,5 @@ public sealed record ServiceDefinition
     public int Replicas { get; init; } = 1;
     /// <summary>Original service group name before replica expansion. Null for non-replicated services.</summary>
     public string? ServiceGroup { get; init; }
+    public ClusterDefinition? Cluster { get; init; }
 }

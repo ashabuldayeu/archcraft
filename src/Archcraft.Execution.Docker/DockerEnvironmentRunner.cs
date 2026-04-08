@@ -170,13 +170,20 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         foreach ((string key, string value) in service.Env)
             builder = builder.WithEnvironment(key, value);
 
-        if (service.Readiness is not null)
+        if (service.Readiness?.Path is not null)
         {
             builder = builder.WithWaitStrategy(
                 Wait.ForUnixContainer()
                     .UntilHttpRequestIsSucceeded(req => req
                         .ForPath(service.Readiness.Path)
                         .ForPort((ushort)service.Port.Value),
+                        r => r.WithTimeout(service.Readiness.Timeout.Value)));
+        }
+        else if (service.Readiness?.LogPattern is not null)
+        {
+            builder = builder.WithWaitStrategy(
+                Wait.ForUnixContainer()
+                    .UntilMessageIsLogged(service.Readiness.LogPattern,
                         r => r.WithTimeout(service.Readiness.Timeout.Value)));
         }
 
@@ -248,7 +255,7 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             .WithNetwork(networkName)
             .WithNetworkAliases("prometheus")
             .WithPortBinding(9090, true)
-            .WithResourceMapping(configPath, "/etc/prometheus/prometheus.yml")
+            .WithResourceMapping(configPath, "/etc/prometheus/")
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(req => req
                     .ForPath("/api/v1/status/runtimeinfo")
@@ -275,8 +282,8 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             .WithEnvironment("GF_AUTH_ANONYMOUS_ENABLED", "true")
             .WithEnvironment("GF_AUTH_ANONYMOUS_ORG_ROLE", "Admin")
             .WithEnvironment("GF_AUTH_DISABLE_LOGIN_FORM", "true")
-            .WithResourceMapping(datasourcePath, "/etc/grafana/provisioning/datasources/datasource.yml")
-            .WithResourceMapping(dashboardProvPath, "/etc/grafana/provisioning/dashboards/dashboards.yml")
+            .WithResourceMapping(datasourcePath, "/etc/grafana/provisioning/datasources/")
+            .WithResourceMapping(dashboardProvPath, "/etc/grafana/provisioning/dashboards/")
             .WithBindMount(dashboardsDir, "/var/lib/grafana/dashboards")
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(req => req

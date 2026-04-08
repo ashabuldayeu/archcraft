@@ -31,11 +31,22 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
          List<ProxyDefinition> proxies,
          List<AdapterDefinition> expandedAdapters) = ExpandReplicas(orderedOriginal, project.Adapters.ToList());
 
+        // Expand clusters → primary + replica nodes with Bitnami env vars
+        (List<ServiceDefinition> clusteredServices,
+         Dictionary<string, string> clusterPrimaryMap) = ExpandClusters(expandedServices, project.Adapters);
+
+        // Update proxy upstream hosts: e.g. "postgres" → "postgres-primary"
+        proxies = proxies
+            .Select(p => clusterPrimaryMap.TryGetValue(p.UpstreamHost, out string? primaryHost)
+                ? p with { UpstreamHost = primaryHost, ProxiedService = primaryHost }
+                : p)
+            .ToList();
+
         IReadOnlyList<ResolvedConnection> resolvedConnections = ConnectionResolver.Resolve(
-            project.Topology.Connections, project.Services);
+            project.Topology.Connections, project.Services, clusteredServices, clusterPrimaryMap);
 
         // Inject resolved env vars — group-aware for replicated services
-        List<ServiceDefinition> orderedServices = InjectEnvVars(expandedServices, resolvedConnections);
+        List<ServiceDefinition> orderedServices = InjectEnvVars(clusteredServices, resolvedConnections);
 
         // Inject ADAPTER_OP_*_URL — name-based lookup after expansion
         orderedServices = InjectAdapterOpUrls(orderedServices, expandedAdapters);
@@ -45,7 +56,8 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
 
         Dictionary<string, ServiceDefinition> serviceByNameFinal = orderedServices.ToDictionary(s => s.Name);
 
-        List<AdapterDefinition> compiledAdapters = InjectAdapterEnvVars(expandedAdapters, serviceByNameFinal, project.Services);
+        List<AdapterDefinition> compiledAdapters = InjectAdapterEnvVars(
+            expandedAdapters, serviceByNameFinal, project.Services, clusterPrimaryMap);
 
         // Build proxy lookups for timeline compilation
         Dictionary<(string from, string to), List<string>> proxyByEdge =
@@ -59,7 +71,7 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
 
         ObservabilityDefinition? observability = project.Observability is null
             ? null
-            : CompileObservability(project.Observability, orderedServices, compiledAdapters);
+            : CompileObservability(project.Observability, orderedServices, compiledAdapters, clusterPrimaryMap);
 
         return new ExecutionPlan
         {
@@ -152,6 +164,161 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         }
 
         return (services, proxies, adapters);
+    }
+
+    // ── Cluster expansion ─────────────────────────────────────────────────────
+
+    private static (List<ServiceDefinition> services, Dictionary<string, string> clusterPrimaryMap)
+        ExpandClusters(List<ServiceDefinition> services, IReadOnlyList<AdapterDefinition> originalAdapters)
+    {
+        // Detect technology per service from adapters
+        Dictionary<string, string> technologyByService = originalAdapters
+            .Where(a => a.ConnectsTo is not null)
+            .GroupBy(a => a.ConnectsTo!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Technology, StringComparer.OrdinalIgnoreCase);
+
+        List<ServiceDefinition> result = [];
+        Dictionary<string, string> clusterPrimaryMap = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ServiceDefinition service in services)
+        {
+            if (service.Cluster is null)
+            {
+                result.Add(service);
+                continue;
+            }
+
+            ClusterDefinition cluster = service.Cluster;
+            string primaryName = $"{service.Name}-primary";
+            technologyByService.TryGetValue(service.Name, out string? technology);
+
+            clusterPrimaryMap[service.Name] = primaryName;
+
+            ReadinessConfig? clusterReadiness = BuildClusterReadiness(technology);
+
+            // Primary node — inherits all original env vars + replication master config
+            Dictionary<string, string> primaryEnv = BuildPrimaryEnv(service.Env, cluster, technology);
+            result.Add(service with
+            {
+                Name = primaryName,
+                Cluster = null,
+                Replicas = 1,
+                ServiceGroup = service.Name,
+                Env = primaryEnv,
+                Readiness = service.Readiness ?? clusterReadiness
+            });
+
+            // Replica nodes
+            for (int i = 0; i < cluster.Replicas; i++)
+            {
+                string replicaName = $"{service.Name}-replica-{i}";
+                Dictionary<string, string> replicaEnv = BuildReplicaEnv(
+                    service.Env, cluster, technology, primaryName, service.Port.Value);
+
+                result.Add(service with
+                {
+                    Name = replicaName,
+                    Cluster = null,
+                    Replicas = 1,
+                    ServiceGroup = service.Name,
+                    Env = replicaEnv,
+                    Readiness = clusterReadiness
+                });
+            }
+        }
+
+        return (result, clusterPrimaryMap);
+    }
+
+    private static ReadinessConfig? BuildClusterReadiness(string? technology)
+    {
+        string? logPattern = technology?.ToLowerInvariant() switch
+        {
+            "redis" => "Ready to accept connections",
+            // matches both primary ("accept connections") and standby ("accept read-only connections")
+            "postgres" => "database system is ready to accept",
+            _ => null
+        };
+
+        return logPattern is null ? null : new ReadinessConfig
+        {
+            LogPattern = logPattern,
+            Timeout = Domain.ValueObjects.Duration.Parse("90s")
+        };
+    }
+
+    private static Dictionary<string, string> BuildPrimaryEnv(
+        IReadOnlyDictionary<string, string> originalEnv,
+        ClusterDefinition cluster,
+        string? technology)
+    {
+        Dictionary<string, string> env = new(originalEnv);
+
+        switch (technology?.ToLowerInvariant())
+        {
+            case "postgres":
+                env["POSTGRESQL_REPLICATION_MODE"] = "master";
+                env["POSTGRESQL_REPLICATION_USER"] = cluster.ReplicationUser;
+                env["POSTGRESQL_REPLICATION_PASSWORD"] = cluster.ReplicationPassword;
+                break;
+
+            case "redis":
+                env["REDIS_REPLICATION_MODE"] = "master";
+                if (!env.ContainsKey("REDIS_PASSWORD"))
+                    env["ALLOW_EMPTY_PASSWORD"] = "yes";
+                break;
+        }
+
+        return env;
+    }
+
+    private static Dictionary<string, string> BuildReplicaEnv(
+        IReadOnlyDictionary<string, string> originalEnv,
+        ClusterDefinition cluster,
+        string? technology,
+        string primaryName,
+        int port)
+    {
+        switch (technology?.ToLowerInvariant())
+        {
+            case "postgres":
+            {
+                Dictionary<string, string> env = [];
+                // Replica needs password for health checks
+                if (originalEnv.TryGetValue("POSTGRESQL_PASSWORD", out string? pgPwd)
+                    || originalEnv.TryGetValue("POSTGRES_PASSWORD", out pgPwd))
+                    env["POSTGRESQL_PASSWORD"] = pgPwd;
+
+                env["POSTGRESQL_REPLICATION_MODE"] = "slave";
+                env["POSTGRESQL_MASTER_HOST"] = primaryName;
+                env["POSTGRESQL_MASTER_PORT_NUMBER"] = port.ToString();
+                env["POSTGRESQL_REPLICATION_USER"] = cluster.ReplicationUser;
+                env["POSTGRESQL_REPLICATION_PASSWORD"] = cluster.ReplicationPassword;
+                return env;
+            }
+
+            case "redis":
+            {
+                Dictionary<string, string> env = [];
+                if (originalEnv.TryGetValue("REDIS_PASSWORD", out string? redisPwd))
+                {
+                    env["REDIS_PASSWORD"] = redisPwd;
+                    env["REDIS_MASTER_PASSWORD"] = redisPwd;
+                }
+                else
+                {
+                    env["ALLOW_EMPTY_PASSWORD"] = "yes";
+                }
+
+                env["REDIS_REPLICATION_MODE"] = "slave";
+                env["REDIS_MASTER_HOST"] = primaryName;
+                env["REDIS_MASTER_PORT_NUMBER"] = port.ToString();
+                return env;
+            }
+
+            default:
+                return new Dictionary<string, string>(originalEnv);
+        }
     }
 
     // ── Env var injection ─────────────────────────────────────────────────────
@@ -449,37 +616,43 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
     private static List<AdapterDefinition> InjectAdapterEnvVars(
         IReadOnlyList<AdapterDefinition> adapters,
         Dictionary<string, ServiceDefinition> services,
-        IReadOnlyList<ServiceDefinition> originalServices)
+        IReadOnlyList<ServiceDefinition> originalServices,
+        Dictionary<string, string> clusterPrimaryMap)
     {
-        // Use original services for looking up infra service config (proxy names, env vars)
+        // Use original services for looking up infra service config when cluster nodes not in services dict
         Dictionary<string, ServiceDefinition> originalByName = originalServices.ToDictionary(s => s.Name);
 
         return adapters.Select(adapter =>
         {
             if (adapter.ConnectsTo is null) return adapter;
 
-            // Prefer original service definition (has Proxy and Env intact)
-            Dictionary<string, ServiceDefinition> lookup = originalByName.ContainsKey(adapter.ConnectsTo)
-                ? originalByName
-                : services;
+            // Resolve cluster group name → primary node name
+            string resolvedTarget = clusterPrimaryMap.TryGetValue(adapter.ConnectsTo, out string? primaryName)
+                ? primaryName
+                : adapter.ConnectsTo;
+
+            // Prefer cluster-expanded node in services; fallback to original
+            Dictionary<string, ServiceDefinition> lookup = services.ContainsKey(resolvedTarget)
+                ? services
+                : originalByName;
 
             if (adapter.Technology == "postgres")
             {
-                string cs = BuildPgConnectionString(adapter.ConnectsTo, lookup);
+                string cs = BuildPgConnectionString(resolvedTarget, lookup);
                 Dictionary<string, string> env = new(adapter.Env) { ["PG_CONNECTION_STRING"] = cs };
                 return adapter with { Env = env };
             }
 
             if (adapter.Technology == "redis")
             {
-                string cs = BuildRedisConnectionString(adapter.ConnectsTo, lookup);
+                string cs = BuildRedisConnectionString(resolvedTarget, lookup);
                 Dictionary<string, string> env = new(adapter.Env) { ["REDIS_CONNECTION_STRING"] = cs };
                 return adapter with { Env = env };
             }
 
             if (adapter.Technology == "http")
             {
-                string url = BuildHttpTargetUrl(adapter.ConnectsTo, lookup);
+                string url = BuildHttpTargetUrl(resolvedTarget, lookup);
                 Dictionary<string, string> env = new(adapter.Env) { ["HTTP_TARGET_URL"] = url };
                 return adapter with { Env = env };
             }
@@ -488,36 +661,45 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         }).ToList();
     }
 
-    private static string BuildPgConnectionString(string serviceName, Dictionary<string, ServiceDefinition> services)
+    private static string BuildPgConnectionString(string resolvedName, Dictionary<string, ServiceDefinition> services)
     {
-        if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
-            throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found.");
+        if (!services.TryGetValue(resolvedName, out ServiceDefinition? service))
+            throw new InvalidOperationException($"Adapter connects-to service '{resolvedName}' not found.");
 
-        string host = service.Proxy ?? serviceName;
-        service.Env.TryGetValue("POSTGRES_DB", out string? db);
-        service.Env.TryGetValue("POSTGRES_USER", out string? user);
-        service.Env.TryGetValue("POSTGRES_PASSWORD", out string? password);
+        string host = service.Proxy ?? resolvedName;
+
+        // Support both Bitnami (POSTGRESQL_*) and official (POSTGRES_*) env var naming
+        service.Env.TryGetValue("POSTGRESQL_DATABASE", out string? db);
+        if (db is null) service.Env.TryGetValue("POSTGRES_DB", out db);
+
+        service.Env.TryGetValue("POSTGRESQL_USERNAME", out string? user);
+        if (user is null) service.Env.TryGetValue("POSTGRES_USER", out user);
+
+        service.Env.TryGetValue("POSTGRESQL_PASSWORD", out string? password);
+        if (password is null) service.Env.TryGetValue("POSTGRES_PASSWORD", out password);
 
         return $"Host={host};Port=5432;Database={db};Username={user};Password={password}";
     }
 
-    private static string BuildRedisConnectionString(string serviceName, Dictionary<string, ServiceDefinition> services)
+    private static string BuildRedisConnectionString(string resolvedName, Dictionary<string, ServiceDefinition> services)
     {
-        if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
-            throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found.");
+        if (!services.TryGetValue(resolvedName, out ServiceDefinition? service))
+            throw new InvalidOperationException($"Adapter connects-to service '{resolvedName}' not found.");
 
-        string host = service.Proxy ?? serviceName;
+        string host = service.Proxy ?? resolvedName;
         service.Env.TryGetValue("REDIS_PASSWORD", out string? password);
 
         return string.IsNullOrEmpty(password) ? $"{host}:6379" : $"{host}:6379,password={password}";
     }
 
-    private static string BuildHttpTargetUrl(string serviceName, Dictionary<string, ServiceDefinition> services)
+    private static string BuildHttpTargetUrl(string resolvedName, Dictionary<string, ServiceDefinition> services)
     {
-        if (!services.TryGetValue(serviceName, out ServiceDefinition? service))
-            throw new InvalidOperationException($"Adapter connects-to service '{serviceName}' not found.");
+        if (!services.TryGetValue(resolvedName, out ServiceDefinition? service))
+            throw new InvalidOperationException($"Adapter connects-to service '{resolvedName}' not found.");
 
-        string host = service.Proxy ?? serviceName;
+        // Replicated services: Docker group alias = service name (not proxy base name like "backend-proxy").
+        // Single/non-replicated: prefer the proxy name (e.g. "redis-proxy"), fall back to service name.
+        string host = service.Replicas > 1 ? resolvedName : (service.Proxy ?? resolvedName);
         return $"http://{host}:{service.Port.Value}";
     }
 
@@ -526,7 +708,8 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
     private static ObservabilityDefinition CompileObservability(
         ObservabilityDefinition observability,
         IReadOnlyList<ServiceDefinition> services,
-        IReadOnlyList<AdapterDefinition> adapters)
+        IReadOnlyList<AdapterDefinition> adapters,
+        Dictionary<string, string> clusterPrimaryMap)
     {
         WarnIfUnsupportedVersion(observability.Prometheus.Image, "Prometheus", new Version(2, 40, 0));
         WarnIfUnsupportedVersion(observability.Grafana.Image, "Grafana", new Version(10, 0, 0));
@@ -535,13 +718,18 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
         HashSet<string> seenServices = new(StringComparer.OrdinalIgnoreCase);
         List<ExporterDefinition> exporters = [];
 
-        // Use original service definitions (group roots) by looking at original services
         Dictionary<string, ServiceDefinition> serviceByName = services.ToDictionary(s => s.Name);
 
         foreach (AdapterDefinition adapter in adapters)
         {
             if (adapter.ConnectsTo is null || !seenServices.Add(adapter.ConnectsTo)) continue;
-            if (!serviceByName.TryGetValue(adapter.ConnectsTo, out ServiceDefinition? service)) continue;
+
+            // Resolve cluster group name → primary node to find the service definition
+            string resolvedTarget = clusterPrimaryMap.TryGetValue(adapter.ConnectsTo, out string? primaryName)
+                ? primaryName
+                : adapter.ConnectsTo;
+
+            if (!serviceByName.TryGetValue(resolvedTarget, out ServiceDefinition? service)) continue;
 
             ExporterDefinition? exporter = adapter.Technology.ToLowerInvariant() switch
             {
@@ -573,9 +761,15 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
 
     private static ExporterDefinition BuildPostgresExporter(ServiceDefinition service)
     {
-        service.Env.TryGetValue("POSTGRES_DB", out string? db);
-        service.Env.TryGetValue("POSTGRES_USER", out string? user);
-        service.Env.TryGetValue("POSTGRES_PASSWORD", out string? password);
+        // Support both Bitnami (POSTGRESQL_*) and official (POSTGRES_*) env var naming
+        service.Env.TryGetValue("POSTGRESQL_DATABASE", out string? db);
+        if (db is null) service.Env.TryGetValue("POSTGRES_DB", out db);
+
+        service.Env.TryGetValue("POSTGRESQL_USERNAME", out string? user);
+        if (user is null) service.Env.TryGetValue("POSTGRES_USER", out user);
+
+        service.Env.TryGetValue("POSTGRESQL_PASSWORD", out string? password);
+        if (password is null) service.Env.TryGetValue("POSTGRES_PASSWORD", out password);
 
         return new()
         {
