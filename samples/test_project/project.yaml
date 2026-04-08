@@ -23,14 +23,14 @@ services:
     image: archcraft/synthetic:latest
     port: 8080
     replicas: 3
-    proxy: backend-proxy
+    proxy: backend-proxy          # → backend-proxy-0, backend-proxy-1, backend-proxy-2
     readiness:
       path: /health
       timeout: 30s
     synthetic:
       adapters:
-        - redis-adapter
-        - pg-adapter
+        - redis-adapter           # → redis-adapter-0, redis-adapter-1, redis-adapter-2
+        - pg-adapter              # → pg-adapter-0, pg-adapter-1, pg-adapter-2
       endpoints:
         - alias: process
           pipeline:
@@ -42,12 +42,14 @@ services:
   - name: frontend
     image: archcraft/synthetic:latest
     port: 8080
+    replicas: 3
+    proxy: frontend-proxy         # → frontend-proxy-0, frontend-proxy-1, frontend-proxy-2
     readiness:
       path: /health
       timeout: 30s
     synthetic:
       adapters:
-        - http-adapter
+        - http-adapter            # → http-adapter-0, http-adapter-1, http-adapter-2
       endpoints:
         - alias: handle
           pipeline:
@@ -95,16 +97,22 @@ connections:
     port: 5432
     via: pg-adapter
 
-# ── Сценарии нагрузки ────────────────────────────────────────────────────────
+# ── Сценарии ─────────────────────────────────────────────────────────────────
 
 scenarios:
+  # Базовая нагрузка — RR по всем репликам frontend через frontend-proxy-0/1/2
   - name: baseline
-    type: http
-    target: http://frontend:8080/handle
-    rps: 10
-    duration: 20s
-    startup_timeout: 90s
+    startup_timeout: 120s
+    timeline:
+      - at: 0s
+        actions:
+          - type: load
+            target: frontend      # DNS RR → frontend-proxy-0, frontend-proxy-1, frontend-proxy-2
+            endpoint: handle
+            rps: 30
+            duration: 20s
 
+  # Деградация Redis — затрагивает redis-proxy → все реплики backend
   - name: redis-degradation
     startup_timeout: 120s
     timeline:
@@ -113,16 +121,17 @@ scenarios:
           - type: load
             target: frontend
             endpoint: handle
-            rps: 10
+            rps: 30
       - at: 5s
         actions:
           - type: inject_latency
             duration: 10s
             target:
               from: backend
-              to: redis
+              to: redis           # redis-proxy — единый для всех реплик backend
             latency: 300ms
 
+  # Частичная деградация — убиваем одну реплику, затем инжектируем задержку в другую
   - name: replica-kill
     startup_timeout: 120s
     timeline:
@@ -135,16 +144,40 @@ scenarios:
       - at: 5s
         actions:
           - type: kill
-            target: backend[1]
-            duration: 15s
+            target: backend[1]    # останавливаем backend-1; backend-proxy-1 продолжает работать
+            duration: 15s         # auto-restore через 15s
       - at: 10s
         actions:
           - type: inject_latency
             duration: 5s
             target:
               from: frontend
-              to: backend[2]
+              to: backend[2]      # только backend-proxy-2 получает задержку
             latency: 500ms
+
+  # Каскадная деградация — деградируем конкретный backend и смотрим на весь frontend
+  - name: cascade-degradation
+    startup_timeout: 120s
+    timeline:
+      - at: 0s
+        actions:
+          - type: load
+            target: frontend
+            endpoint: handle
+            rps: 30
+      - at: 5s
+        actions:
+          - type: inject_latency
+            duration: 10s
+            target:
+              from: frontend
+              to: backend         # fan-out: backend-proxy-0, backend-proxy-1, backend-proxy-2
+            latency: 200ms
+      - at: 10s
+        actions:
+          - type: kill
+            target: backend[0]
+            duration: 8s
 
 # ── Observability ─────────────────────────────────────────────────────────────
 
