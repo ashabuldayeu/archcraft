@@ -1,7 +1,5 @@
 using System.CommandLine;
 using Archcraft.App.UseCases;
-using Archcraft.Domain.Entities;
-using Archcraft.Observability;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Archcraft.Cli.Commands;
@@ -15,7 +13,7 @@ public static class RunCommand
             Description = "Path to project.yaml"
         };
 
-        Command command = new("run", "Run all scenarios in a project")
+        Command command = new("run", "Start an interactive session for a project")
         {
             fileArg
         };
@@ -24,13 +22,26 @@ public static class RunCommand
         {
             FileInfo file = result.GetValue(fileArg)!;
 
+            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;
+                cts.Cancel();
+            };
+
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
+
             try
             {
                 await using AsyncServiceScope scope = services.CreateAsyncScope();
-                RunProjectUseCase useCase = scope.ServiceProvider.GetRequiredService<RunProjectUseCase>();
-                RunReport report = await useCase.ExecuteAsync(file.FullName, cancellationToken: ct);
-                ConsoleReportRenderer.Render(report);
-                await JsonReportWriter.WriteAsync(report, file.FullName, CancellationToken.None);
+                InteractiveSessionUseCase useCase =
+                    scope.ServiceProvider.GetRequiredService<InteractiveSessionUseCase>();
+                await useCase.RunAsync(file.FullName, cts.Token);
+                return 0;
+            }
+            catch (OperationCanceledException)
+            {
                 return 0;
             }
             catch (Exception ex)

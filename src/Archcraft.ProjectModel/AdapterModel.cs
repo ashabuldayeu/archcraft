@@ -18,4 +18,7 @@ public sealed class AdapterModel
 
     [YamlMember(Alias = "connects_to")]
     public string? ConnectsTo { get; set; }
+
+    [YamlMember(Alias = "env")]
+    public Dictionary<string, string>? Env { get; set; }
 }

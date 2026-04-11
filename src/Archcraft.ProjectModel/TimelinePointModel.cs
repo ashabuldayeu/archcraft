@@ -29,6 +29,9 @@ public sealed class TimelineActionModel
     [YamlMember(Alias = "rps")]
     public int Rps { get; set; }
 
+    [YamlMember(Alias = "request_timeout")]
+    public string? RequestTimeout { get; set; }
+
     // inject_latency
     [YamlMember(Alias = "latency")]
     public string? Latency { get; set; }

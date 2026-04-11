@@ -192,13 +192,13 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         return container;
     }
 
-    public async Task StartObservabilityAsync(
+    public async Task<string?> StartObservabilityAsync(
         ExecutionPlan plan,
         string projectDirectory,
         CancellationToken cancellationToken = default)
     {
         if (plan.Observability is null)
-            return;
+            return null;
 
         ObservabilityDefinition obs = plan.Observability;
         string dashboardsDir = Path.Combine(projectDirectory, "dashboards");
@@ -223,7 +223,13 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             obs.Grafana, dashboardsDir, plan.NetworkName, cancellationToken);
         _containers.Add(grafanaContainer);
         int grafanaPort = grafanaContainer.GetMappedPublicPort(obs.Grafana.Port);
-        _logger.LogInformation("Grafana ready at http://localhost:{Port}", grafanaPort);
+
+        string grafanaUrl = $"http://localhost:{grafanaPort}";
+        Console.WriteLine();
+        Console.WriteLine($"  Grafana:  {grafanaUrl}  (admin / admin)");
+        Console.WriteLine();
+
+        return grafanaUrl;
     }
 
     private static async Task<IContainer> StartExporterAsync(
@@ -332,6 +338,17 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         _logger.LogInformation("Restoring replica '{ReplicaName}'...", replicaName);
         await container.StartAsync(cancellationToken);
         _logger.LogInformation("Replica '{ReplicaName}' restored.", replicaName);
+    }
+
+    public async Task RestartContainerAsync(string alias, CancellationToken cancellationToken = default)
+    {
+        if (!_containerByServiceName.TryGetValue(alias, out IContainer? container))
+            throw new InvalidOperationException($"No container found for alias '{alias}'.");
+
+        _logger.LogInformation("Restarting container '{Alias}'...", alias);
+        await container.StopAsync(cancellationToken);
+        await container.StartAsync(cancellationToken);
+        _logger.LogInformation("Container '{Alias}' restarted.", alias);
     }
 
     public string GetProxyApiUrl(string proxyName)

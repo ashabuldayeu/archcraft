@@ -22,6 +22,10 @@ public static class ConsoleReportRenderer
         }
 
         Console.WriteLine("╚══════════════════════════════════════════════════════════════════════════╝");
+
+        if (report.GrafanaUrl is not null)
+            Console.WriteLine($"  Grafana:  {report.GrafanaUrl}  (admin / admin)");
+
         Console.WriteLine();
     }
 }

@@ -6,4 +6,5 @@ public sealed record RunReport
     public required DateTimeOffset Timestamp { get; init; }
     public required string ProjectName { get; init; }
     public required IReadOnlyList<MetricSnapshot> Snapshots { get; init; }
+    public string? GrafanaUrl { get; init; }
 }

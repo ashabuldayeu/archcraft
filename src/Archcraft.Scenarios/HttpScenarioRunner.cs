@@ -9,11 +9,16 @@ namespace Archcraft.Scenarios;
 public sealed class HttpScenarioRunner : IScenarioRunner
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IEnvironmentRunner _environmentRunner;
     private readonly ILogger<HttpScenarioRunner> _logger;
 
-    public HttpScenarioRunner(IHttpClientFactory httpClientFactory, ILogger<HttpScenarioRunner> logger)
+    public HttpScenarioRunner(
+        IHttpClientFactory httpClientFactory,
+        IEnvironmentRunner environmentRunner,
+        ILogger<HttpScenarioRunner> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _environmentRunner = environmentRunner;
         _logger = logger;
     }
 
@@ -34,6 +39,9 @@ public sealed class HttpScenarioRunner : IScenarioRunner
 
         await RunLoadAsync(scenario, collector, cancellationToken);
 
+        if (scenario.RestartAfter.Count > 0)
+            await RestartContainersAsync(scenario.RestartAfter, cancellationToken);
+
         (double p50, double p99, double errorRate, int total, IReadOnlyList<double> raw) = collector.GetStats();
 
         return new MetricSnapshot
@@ -50,7 +58,7 @@ public sealed class HttpScenarioRunner : IScenarioRunner
     private async Task WaitForTargetAsync(ScenarioDefinition scenario, CancellationToken cancellationToken)
     {
         using HttpClient client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(5);
+        client.Timeout = TimeSpan.FromSeconds(2);
 
         TimeSpan timeout = scenario.StartupTimeout.Value;
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -93,28 +101,107 @@ public sealed class HttpScenarioRunner : IScenarioRunner
     {
         TimeSpan duration = scenario.ScenarioDuration.Value;
         int rps = scenario.Rps.Value;
-        TimeSpan interval = TimeSpan.FromMilliseconds(1000.0 / rps);
 
+        // Drain CTS — controls in-flight requests; cancelled only when drain timeout expires
+        using CancellationTokenSource drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        // Semaphore limits concurrent in-flight requests to prevent port exhaustion.
+        // Cap = rps/5 (≈200ms headroom): at 1000 RPS allows ~200 concurrent connections.
+        // rps*2 would allow 2000 connections which overwhelms Docker networking at high RPS.
+        int maxInFlight = Math.Max(rps / 5, 50);
+        using SemaphoreSlim slots = new(maxInFlight, maxInFlight);
+
+        List<Task> pending = [];
         Stopwatch elapsed = Stopwatch.StartNew();
+        long scheduled = 0;
 
-        while (elapsed.Elapsed < duration && !cancellationToken.IsCancellationRequested)
+        // ── Load phase ────────────────────────────────────────────────────────
+        bool cancelled = false;
+        while (elapsed.Elapsed < duration && !cancellationToken.IsCancellationRequested && !cancelled)
         {
-            Stopwatch requestTimer = Stopwatch.StartNew();
-            _ = FireRequestAsync(scenario.Target, collector, cancellationToken);
+            // Cumulative timing: how many requests should have been sent by now?
+            long expected = (long)(elapsed.Elapsed.TotalSeconds * rps);
 
-            TimeSpan waitTime = interval - requestTimer.Elapsed;
-            if (waitTime > TimeSpan.Zero)
-                await Task.Delay(waitTime, cancellationToken);
+            // Cap at 1 second's worth to absorb timer jitter without runaway bursting
+            long toSend = Math.Min(expected - scheduled, rps);
+            scheduled += toSend;
+
+            for (long i = 0; i < toSend && !cancelled; i++)
+            {
+                try { await slots.WaitAsync(cancellationToken); }
+                catch (OperationCanceledException) { cancelled = true; break; }
+
+                pending.Add(FireAndReleaseAsync(scenario.Target, collector, slots, scenario.RequestTimeout.Value, drainCts.Token));
+            }
+
+            // Sleep until the next request is due
+            double nextAt = (scheduled + 1.0) / rps;
+            TimeSpan sleepFor = TimeSpan.FromSeconds(nextAt) - elapsed.Elapsed;
+
+            if (sleepFor > TimeSpan.FromMilliseconds(1))
+            {
+                try { await Task.Delay(sleepFor, cancellationToken); }
+                catch (OperationCanceledException) { break; }
+            }
+            else
+            {
+                await Task.Yield(); // always yield to prevent synchronous monopolisation
+            }
         }
 
-        // Wait briefly for in-flight requests to settle
-        await Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken.None);
+        // ── Drain phase ───────────────────────────────────────────────────────
+        if (scenario.DrainTimeout is null)
+        {
+            // Legacy behaviour: brief fixed wait, no explicit drain
+            await Task.Delay(TimeSpan.FromMilliseconds(500), CancellationToken.None);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Scenario '{Name}': load phase done, draining {Count} in-flight request(s) (timeout: {Timeout})...",
+            scenario.Name, pending.Count(t => !t.IsCompleted), scenario.DrainTimeout.Value.Value);
+
+        try
+        {
+            using CancellationTokenSource timeoutCts = new(scenario.DrainTimeout.Value.Value);
+            await Task.WhenAll(pending).WaitAsync(timeoutCts.Token);
+            _logger.LogInformation("Scenario '{Name}': all in-flight requests completed.", scenario.Name);
+        }
+        catch (OperationCanceledException)
+        {
+            int remaining = pending.Count(t => !t.IsCompleted);
+            _logger.LogWarning(
+                "Scenario '{Name}': drain timeout expired, cancelling {Count} remaining request(s).",
+                scenario.Name, remaining);
+            drainCts.Cancel();
+
+            // Give cancellation a moment to propagate before collecting stats
+            await Task.Delay(TimeSpan.FromMilliseconds(100), CancellationToken.None);
+        }
     }
 
-    private async Task FireRequestAsync(string target, IMetricsCollector collector, CancellationToken cancellationToken)
+    private async Task FireAndReleaseAsync(
+        string target,
+        IMetricsCollector collector,
+        SemaphoreSlim slots,
+        TimeSpan requestTimeout,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FireRequestAsync(target, collector, requestTimeout, cancellationToken);
+        }
+        finally
+        {
+            try { slots.Release(); }
+            catch (ObjectDisposedException) { /* scenario ended during drain */ }
+        }
+    }
+
+    private async Task FireRequestAsync(string target, IMetricsCollector collector, TimeSpan timeout, CancellationToken cancellationToken)
     {
         using HttpClient client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(10);
+        client.Timeout = timeout;
 
         Stopwatch timer = Stopwatch.StartNew();
         bool success = false;
@@ -132,5 +219,14 @@ public sealed class HttpScenarioRunner : IScenarioRunner
         }
 
         collector.RecordRequest(timer.Elapsed, success);
+    }
+
+    private async Task RestartContainersAsync(IReadOnlyList<string> aliases, CancellationToken cancellationToken)
+    {
+        foreach (string alias in aliases)
+        {
+            _logger.LogInformation("Post-scenario restart: '{Alias}'...", alias);
+            await _environmentRunner.RestartContainerAsync(alias, cancellationToken);
+        }
     }
 }

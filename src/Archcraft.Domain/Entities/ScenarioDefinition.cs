@@ -11,4 +11,7 @@ public sealed record ScenarioDefinition
     public required RpsTarget Rps { get; init; }
     public required Duration ScenarioDuration { get; init; }
     public Duration StartupTimeout { get; init; } = Duration.Parse("30s");
+    public Duration RequestTimeout { get; init; } = Duration.Parse("5s");
+    public Duration? DrainTimeout { get; init; }
+    public IReadOnlyList<string> RestartAfter { get; init; } = [];
 }

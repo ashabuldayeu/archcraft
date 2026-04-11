@@ -289,6 +289,10 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                     || originalEnv.TryGetValue("POSTGRES_PASSWORD", out pgPwd))
                     env["POSTGRESQL_PASSWORD"] = pgPwd;
 
+                // Replica max_connections must be >= primary's; propagate if set
+                if (originalEnv.TryGetValue("POSTGRESQL_MAX_CONNECTIONS", out string? maxConn))
+                    env["POSTGRESQL_MAX_CONNECTIONS"] = maxConn;
+
                 env["POSTGRESQL_REPLICATION_MODE"] = "slave";
                 env["POSTGRESQL_MASTER_HOST"] = primaryName;
                 env["POSTGRESQL_MASTER_PORT_NUMBER"] = port.ToString();

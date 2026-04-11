@@ -5,10 +5,12 @@ namespace Archcraft.Contracts;
 public interface IEnvironmentRunner : IAsyncDisposable
 {
     Task StartAsync(ExecutionPlan plan, CancellationToken cancellationToken = default);
-    Task StartObservabilityAsync(ExecutionPlan plan, string projectDirectory, CancellationToken cancellationToken = default);
+    /// <summary>Starts observability stack. Returns Grafana URL if Grafana is running, null otherwise.</summary>
+    Task<string?> StartObservabilityAsync(ExecutionPlan plan, string projectDirectory, CancellationToken cancellationToken = default);
     Task StopAsync(CancellationToken cancellationToken = default);
     Task KillReplicaAsync(string replicaName, CancellationToken cancellationToken = default);
     Task RestoreReplicaAsync(string replicaName, CancellationToken cancellationToken = default);
+    Task RestartContainerAsync(string alias, CancellationToken cancellationToken = default);
 
     /// <summary>Returns the host-accessible address for a service or replica: "localhost:PORT".</summary>
     string GetMappedAddress(string serviceName);

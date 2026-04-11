@@ -12,6 +12,7 @@ public sealed record LoadAction : TimelineAction
     public required string Target { get; init; }
     public required string Endpoint { get; init; }
     public required int Rps { get; init; }
+    public ValueObjects.Duration RequestTimeout { get; init; } = ValueObjects.Duration.Parse("5s");
 }
 
 public sealed record InjectLatencyAction : TimelineAction

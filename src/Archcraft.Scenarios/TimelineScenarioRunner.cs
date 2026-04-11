@@ -146,7 +146,7 @@ public sealed class TimelineScenarioRunner
         CancellationTokenSource cts = new();
         _loadCts[load.Target] = cts;
 
-        _ = RunLoadLoopAsync(addresses, load.Endpoint, load.Rps, cts.Token);
+        _ = RunLoadLoopAsync(addresses, load.Endpoint, load.Rps, load.RequestTimeout.Value, cts.Token);
 
         _logger.LogInformation("Load started: {Rps} RPS → {Target} ({Count} replica(s))",
             load.Rps, load.Target, addresses.Count);
@@ -156,34 +156,78 @@ public sealed class TimelineScenarioRunner
         IReadOnlyList<string> addresses,
         string endpoint,
         int rps,
+        TimeSpan requestTimeout,
         CancellationToken cancellationToken)
     {
-        TimeSpan interval = TimeSpan.FromMilliseconds(1000.0 / rps);
-        int index = 0;
+        // Semaphore limits concurrent in-flight requests to prevent port exhaustion.
+        // Cap = rps/5 (≈200ms headroom): at 1000 RPS allows ~200 concurrent connections.
+        // rps*2 would allow 2000 connections which overwhelms Docker networking at high RPS.
+        int maxInFlight = Math.Max(rps / 5, 50);
+        using SemaphoreSlim slots = new(maxInFlight, maxInFlight);
+
+        Stopwatch elapsed = Stopwatch.StartNew();
+        long scheduled = 0;
+        long rrIndex = 0;
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            Stopwatch requestTimer = Stopwatch.StartNew();
+            // Cumulative timing: how many requests should have been sent by now?
+            long expected = (long)(elapsed.Elapsed.TotalSeconds * rps);
 
-            string address = addresses[index % addresses.Count];
-            index++;
-            string url = $"http://{address}/{endpoint}";
+            // Cap at 1 second's worth to absorb timer jitter without runaway bursting
+            long toSend = Math.Min(expected - scheduled, rps);
+            scheduled += toSend;
 
-            _ = FireRequestAsync(url, address, cancellationToken);
-
-            TimeSpan wait = interval - requestTimer.Elapsed;
-            if (wait > TimeSpan.Zero)
+            for (long i = 0; i < toSend && !cancellationToken.IsCancellationRequested; i++)
             {
-                try { await Task.Delay(wait, cancellationToken); }
-                catch (OperationCanceledException) { break; }
+                try { await slots.WaitAsync(cancellationToken); }
+                catch (OperationCanceledException) { return; }
+
+                string address = addresses[(int)(rrIndex % addresses.Count)];
+                rrIndex++;
+                string url = $"http://{address}/{endpoint}";
+
+                _ = FireAndReleaseAsync(url, address, slots, requestTimeout, cancellationToken);
+            }
+
+            // Sleep until the next request is due
+            double nextAt = (scheduled + 1.0) / rps;
+            TimeSpan sleepFor = TimeSpan.FromSeconds(nextAt) - elapsed.Elapsed;
+
+            if (sleepFor > TimeSpan.FromMilliseconds(1))
+            {
+                try { await Task.Delay(sleepFor, cancellationToken); }
+                catch (OperationCanceledException) { return; }
+            }
+            else
+            {
+                await Task.Yield(); // always yield to prevent synchronous monopolisation
             }
         }
     }
 
-    private async Task FireRequestAsync(string url, string replicaAddress, CancellationToken cancellationToken)
+    private async Task FireAndReleaseAsync(
+        string url,
+        string replicaAddress,
+        SemaphoreSlim slots,
+        TimeSpan requestTimeout,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FireRequestAsync(url, replicaAddress, requestTimeout, cancellationToken);
+        }
+        finally
+        {
+            try { slots.Release(); }
+            catch (ObjectDisposedException) { /* loop exited during in-flight drain */ }
+        }
+    }
+
+    private async Task FireRequestAsync(string url, string replicaAddress, TimeSpan requestTimeout, CancellationToken cancellationToken)
     {
         using HttpClient client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(10);
+        client.Timeout = requestTimeout;
 
         Stopwatch timer = Stopwatch.StartNew();
         bool success = false;
@@ -350,7 +394,7 @@ public sealed class TimelineScenarioRunner
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         using HttpClient client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(5);
+        client.Timeout = TimeSpan.FromSeconds(2);
 
         foreach (string target in loadTargets)
         {

@@ -12,7 +12,13 @@ using Microsoft.Extensions.Logging;
 
 ServiceCollection services = new();
 
-services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
+services.AddLogging(b => b
+    .AddConsole()
+    .SetMinimumLevel(LogLevel.Information)
+    .AddFilter("System", LogLevel.None)
+    .AddFilter("Microsoft", LogLevel.None)
+    .AddFilter("DotNet.Testcontainers", LogLevel.None));
+
 services.AddHttpClient();
 
 // Ports → Adapters

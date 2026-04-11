@@ -62,7 +62,8 @@ public sealed class YamlProjectLoader : IProjectLoader
             Image = model.Image,
             Port = new ServicePort(model.Port),
             Technology = model.Technology,
-            ConnectsTo = model.ConnectsTo
+            ConnectsTo = model.ConnectsTo,
+            Env = model.Env ?? new Dictionary<string, string>()
         };
 
     private static ServiceDefinition MapService(ServiceModel model) =>
@@ -161,7 +162,10 @@ public sealed class YamlProjectLoader : IProjectLoader
             Target = model.Target,
             Rps = new RpsTarget(model.Rps),
             ScenarioDuration = Duration.Parse(model.Duration),
-            StartupTimeout = Duration.Parse(model.StartupTimeout)
+            StartupTimeout = Duration.Parse(model.StartupTimeout),
+            RequestTimeout = model.RequestTimeout is null ? Duration.Parse("5s") : Duration.Parse(model.RequestTimeout),
+            DrainTimeout = model.DrainTimeout is null ? null : Duration.Parse(model.DrainTimeout),
+            RestartAfter = model.RestartAfter ?? []
         };
 
     private static TimelineScenarioDefinition MapTimelineScenario(ScenarioModel model) =>
@@ -222,7 +226,8 @@ public sealed class YamlProjectLoader : IProjectLoader
                 Duration = duration,
                 Target = model.Target?.ToString() ?? string.Empty,
                 Endpoint = model.Endpoint ?? string.Empty,
-                Rps = model.Rps
+                Rps = model.Rps,
+                RequestTimeout = model.RequestTimeout is null ? Duration.Parse("5s") : Duration.Parse(model.RequestTimeout)
             },
             "inject_latency" => new InjectLatencyAction
             {

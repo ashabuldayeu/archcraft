@@ -23,6 +23,7 @@ services:
       POSTGRESQL_DATABASE: archcraft
       POSTGRESQL_USERNAME: user
       POSTGRESQL_PASSWORD: secret
+      POSTGRESQL_MAX_CONNECTIONS: "200"
 
 # ── Synthetic-сервисы ────────────────────────────────────────────────────────
 
@@ -76,6 +77,9 @@ adapters:
     port: 8080
     technology: postgres
     connects_to: postgres
+    env:
+      PG_POOL_MIN_SIZE: "10"
+      PG_POOL_MAX_SIZE: "20"
 
   - name: http-adapter
     image: archcraft/http-adapter:latest
@@ -107,7 +111,19 @@ connections:
 # ── Сценарии ─────────────────────────────────────────────────────────────────
 
 scenarios:
-  # Базовая нагрузка — RR по всем репликам frontend через frontend-proxy-0/1/2
+  # Прогрев — устанавливает соединения и прогревает кэши перед основными сценариями
+  - name: warmup
+    startup_timeout: 120s
+    timeline:
+      - at: 0s
+        actions:
+          - type: load
+            target: frontend
+            endpoint: handle
+            rps: 500
+            duration: 10s
+
+  # Базовая нагрузка — 15000 RPS × 30s
   - name: baseline
     startup_timeout: 120s
     timeline:
@@ -116,8 +132,8 @@ scenarios:
           - type: load
             target: frontend      # DNS RR → frontend-proxy-0, frontend-proxy-1, frontend-proxy-2
             endpoint: handle
-            rps: 30
-            duration: 20s
+            rps: 5000
+            duration: 40s
 
   # Деградация Redis — затрагивает redis-proxy → все реплики backend
   - name: redis-degradation
@@ -128,7 +144,7 @@ scenarios:
           - type: load
             target: frontend
             endpoint: handle
-            rps: 30
+            rps: 500
       - at: 5s
         actions:
           - type: inject_latency
@@ -147,7 +163,7 @@ scenarios:
           - type: load
             target: frontend
             endpoint: handle
-            rps: 30
+            rps: 500
       - at: 5s
         actions:
           - type: kill
@@ -171,7 +187,7 @@ scenarios:
           - type: load
             target: frontend
             endpoint: handle
-            rps: 30
+            rps: 500
       - at: 5s
         actions:
           - type: inject_latency

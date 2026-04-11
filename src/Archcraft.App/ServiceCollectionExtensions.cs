@@ -9,6 +9,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddTransient<RunProjectUseCase>();
         services.AddTransient<ValidateProjectUseCase>();
+        services.AddTransient<InteractiveSessionUseCase>();
         return services;
     }
 }

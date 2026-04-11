@@ -40,9 +40,10 @@ public sealed class RunProjectUseCase
         _logger = logger;
     }
 
-    public async Task<RunReport> ExecuteAsync(
+    // ── Setup / teardown ──────────────────────────────────────────────────────
+
+    public async Task<(ExecutionPlan Plan, string? GrafanaUrl)> SetupAsync(
         string projectFilePath,
-        string? scenarioName = null,
         CancellationToken cancellationToken = default)
     {
         ProjectDefinition project = await _loader.LoadAsync(projectFilePath, cancellationToken);
@@ -51,48 +52,91 @@ public sealed class RunProjectUseCase
         string projectDirectory = Path.GetDirectoryName(projectFilePath)!;
         await _dashboardGenerator.GenerateAsync(plan, projectDirectory);
 
-        IReadOnlyList<ScenarioDefinition> legacyScenariosToRun = scenarioName is null
-            ? plan.Scenarios
-            : plan.Scenarios.Where(s => s.Name == scenarioName).ToList();
+        await _environmentRunner.StartAsync(plan, cancellationToken);
+        string? grafanaUrl = await _environmentRunner.StartObservabilityAsync(
+            plan, projectDirectory, cancellationToken);
 
-        IReadOnlyList<TimelineScenarioDefinition> timelineScenariosToRun = scenarioName is null
-            ? plan.TimelineScenarios
-            : plan.TimelineScenarios.Where(s => s.Name == scenarioName).ToList();
+        return (plan, grafanaUrl);
+    }
 
-        if (legacyScenariosToRun.Count == 0 && timelineScenariosToRun.Count == 0 && scenarioName is not null)
-            throw new InvalidOperationException($"Scenario '{scenarioName}' not found in project.");
+    public Task TeardownAsync() => _environmentRunner.StopAsync(CancellationToken.None);
+
+    // ── Scenario execution ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Runs scenarios by name. Pass null to run all. Throws if any named scenario is not found.
+    /// </summary>
+    public async Task<IReadOnlyList<MetricSnapshot>> RunScenariosAsync(
+        ExecutionPlan plan,
+        IReadOnlyList<string>? scenarioNames = null,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<ScenarioDefinition> legacyToRun;
+        IReadOnlyList<TimelineScenarioDefinition> timelinesToRun;
+
+        if (scenarioNames is null)
+        {
+            legacyToRun = plan.Scenarios;
+            timelinesToRun = plan.TimelineScenarios;
+        }
+        else
+        {
+            // Validate all requested names exist before running anything
+            foreach (string name in scenarioNames)
+            {
+                bool found = plan.Scenarios.Any(s => s.Name == name)
+                          || plan.TimelineScenarios.Any(s => s.Name == name);
+                if (!found)
+                    throw new InvalidOperationException($"Scenario '{name}' not found in project.");
+            }
+
+            legacyToRun = plan.Scenarios.Where(s => scenarioNames.Contains(s.Name)).ToList();
+            timelinesToRun = plan.TimelineScenarios.Where(s => scenarioNames.Contains(s.Name)).ToList();
+        }
 
         List<MetricSnapshot> snapshots = [];
 
+        foreach (ScenarioDefinition scenario in legacyToRun)
+        {
+            ScenarioDefinition resolved = ResolveScenarioTarget(scenario, plan, _environmentRunner);
+            IScenarioRunner runner = _scenarioRunners.FirstOrDefault(r => r.CanHandle(resolved))
+                ?? throw new InvalidOperationException($"No runner found for scenario type '{resolved.Type}'.");
+            MetricSnapshot snapshot = await runner.RunAsync(resolved, _metricsCollector, cancellationToken);
+            snapshots.Add(snapshot);
+        }
+
+        foreach (TimelineScenarioDefinition scenario in timelinesToRun)
+        {
+            MetricSnapshot snapshot = await _timelineRunner.RunAsync(scenario, plan, cancellationToken);
+            snapshots.Add(snapshot);
+        }
+
+        return snapshots;
+    }
+
+    // ── Legacy all-in-one entry point (used by ScenarioCommand) ──────────────
+
+    public async Task<RunReport> ExecuteAsync(
+        string projectFilePath,
+        string? scenarioName = null,
+        CancellationToken cancellationToken = default)
+    {
+        (ExecutionPlan plan, string? grafanaUrl) = await SetupAsync(projectFilePath, cancellationToken);
+
         try
         {
-            await _environmentRunner.StartAsync(plan, cancellationToken);
-            await _environmentRunner.StartObservabilityAsync(plan, projectDirectory, cancellationToken);
-
-            foreach (ScenarioDefinition scenario in legacyScenariosToRun)
-            {
-                ScenarioDefinition resolved = ResolveScenarioTarget(scenario, plan, _environmentRunner);
-
-                IScenarioRunner runner = _scenarioRunners.FirstOrDefault(r => r.CanHandle(resolved))
-                    ?? throw new InvalidOperationException($"No runner found for scenario type '{resolved.Type}'.");
-
-                MetricSnapshot snapshot = await runner.RunAsync(resolved, _metricsCollector, cancellationToken);
-                snapshots.Add(snapshot);
-            }
-
-            foreach (TimelineScenarioDefinition scenario in timelineScenariosToRun)
-            {
-                MetricSnapshot snapshot = await _timelineRunner.RunAsync(scenario, plan, cancellationToken);
-                snapshots.Add(snapshot);
-            }
+            IReadOnlyList<string>? names = scenarioName is null ? null : [scenarioName];
+            IReadOnlyList<MetricSnapshot> snapshots = await RunScenariosAsync(plan, names, cancellationToken);
+            RunReport report = _reportBuilder.Build(plan.ProjectName, snapshots);
+            return report with { GrafanaUrl = grafanaUrl };
         }
         finally
         {
-            await _environmentRunner.StopAsync(CancellationToken.None);
+            await TeardownAsync();
         }
-
-        return _reportBuilder.Build(project.Name, snapshots);
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static ScenarioDefinition ResolveScenarioTarget(
         ScenarioDefinition scenario,
@@ -105,8 +149,6 @@ public sealed class RunProjectUseCase
         {
             string servicePort = service.Port.Value.ToString();
             string mappedAddress = runner.GetMappedAddress(service.Name);
-
-            // Replace "service-name:port" → "host:mappedPort" for access from host machine
             target = target.Replace($"{service.Name}:{servicePort}", mappedAddress);
         }
 
