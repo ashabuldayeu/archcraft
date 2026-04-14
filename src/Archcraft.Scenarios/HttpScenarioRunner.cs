@@ -44,6 +44,8 @@ public sealed class HttpScenarioRunner : IScenarioRunner
 
         (double p50, double p99, double errorRate, int total, IReadOnlyList<double> raw) = collector.GetStats();
 
+        int targetRequests = scenario.Rps.Value * (int)scenario.ScenarioDuration.Value.TotalSeconds;
+
         return new MetricSnapshot
         {
             ScenarioName = scenario.Name,
@@ -51,6 +53,7 @@ public sealed class HttpScenarioRunner : IScenarioRunner
             P99Ms = p99,
             ErrorRate = errorRate,
             TotalRequests = total,
+            TargetRequests = targetRequests,
             RawLatenciesMs = raw
         };
     }

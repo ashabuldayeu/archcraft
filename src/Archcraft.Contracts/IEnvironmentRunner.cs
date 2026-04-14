@@ -20,4 +20,10 @@ public interface IEnvironmentRunner : IAsyncDisposable
 
     /// <summary>Returns the ToxiProxy API URL (host-accessible) for a named proxy.</summary>
     string GetProxyApiUrl(string proxyName);
+
+    /// <summary>Returns the host-accessible base URL for a named adapter (e.g. "http://localhost:PORT").</summary>
+    string GetAdapterBaseUrl(string adapterName);
+
+    /// <summary>Returns all running adapters.</summary>
+    IReadOnlyCollection<string> GetAllAdapterNames();
 }

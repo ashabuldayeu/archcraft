@@ -14,5 +14,11 @@ public sealed class RedisConnectionFactory : IDisposable
 
     public IDatabase GetDatabase() => _multiplexer.GetDatabase();
 
+    public IServer GetServer()
+    {
+        System.Net.EndPoint[] endpoints = _multiplexer.GetEndPoints();
+        return _multiplexer.GetServer(endpoints[0]);
+    }
+
     public void Dispose() => _multiplexer.Dispose();
 }

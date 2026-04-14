@@ -12,6 +12,12 @@ public sealed class SynteticMetrics : IDisposable
     public Histogram<double> OperationDuration { get; }
     public Counter<long> OperationCallsTotal { get; }
 
+    /// <summary>
+    /// Per-endpoint request counter. Tags: alias, status ("ok" | "error").
+    /// Exported as synthetic_requests_total in Prometheus.
+    /// </summary>
+    public Counter<long> RequestsTotal { get; }
+
     public SynteticMetrics(string serviceName)
     {
         _meter = new Meter(MeterName, "1.0.0");
@@ -29,6 +35,10 @@ public sealed class SynteticMetrics : IDisposable
         OperationCallsTotal = _meter.CreateCounter<long>(
             "operation.calls.total",
             description: "Total number of pipeline operation calls");
+
+        RequestsTotal = _meter.CreateCounter<long>(
+            "synthetic.requests",
+            description: "Total requests handled per endpoint alias and status");
     }
 
     public void Dispose() => _meter.Dispose();

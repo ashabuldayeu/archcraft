@@ -10,6 +10,7 @@ RedisAdapterOptions options = RedisAdapterOptions.FromEnvironment();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<RedisConnectionFactory>();
 builder.Services.AddSingleton<RetryPolicy>();
+builder.Services.AddSingleton<IDataSeeder, RedisDataSeeder>();
 
 builder.Services.AddSingleton<IAdapterOperation, GetOperation>();
 builder.Services.AddSingleton<IAdapterOperation, SetOperation>();

@@ -75,6 +75,8 @@ public sealed class TimelineScenarioRunner
 
         (double p50, double p99, double errorRate, int total, IReadOnlyList<double> raw) = _collector.GetStats();
 
+        int targetRequests = ComputeTargetRequests(scenario);
+
         Dictionary<string, MetricSnapshot>? replicaSnapshots = BuildReplicaSnapshots(scenario.Name);
 
         return new MetricSnapshot
@@ -84,6 +86,7 @@ public sealed class TimelineScenarioRunner
             P99Ms = p99,
             ErrorRate = errorRate,
             TotalRequests = total,
+            TargetRequests = targetRequests,
             RawLatenciesMs = raw,
             ReplicaSnapshots = replicaSnapshots is { Count: > 0 } ? replicaSnapshots : null
         };
@@ -368,6 +371,37 @@ public sealed class TimelineScenarioRunner
         }
 
         return result;
+    }
+
+    private static int ComputeTargetRequests(TimelineScenarioDefinition scenario)
+    {
+        // Scenario ends when the last timed action completes.
+        // For actions with no duration we use TimeSpan.Zero — they don't extend the scenario end.
+        TimeSpan scenarioEnd = scenario.Timeline
+            .Select(p => p.At + p.Actions
+                .Select(a => a.Duration?.Value ?? TimeSpan.Zero)
+                .DefaultIfEmpty(TimeSpan.Zero)
+                .Max())
+            .DefaultIfEmpty(TimeSpan.Zero)
+            .Max();
+
+        int total = 0;
+        foreach (TimelinePoint point in scenario.Timeline)
+        {
+            foreach (TimelineAction action in point.Actions)
+            {
+                if (action is not LoadAction load) continue;
+
+                TimeSpan effectiveDuration = load.Duration.HasValue
+                    ? load.Duration.Value.Value
+                    : scenarioEnd - point.At;
+
+                if (effectiveDuration > TimeSpan.Zero)
+                    total += load.Rps * (int)effectiveDuration.TotalSeconds;
+            }
+        }
+
+        return total;
     }
 
     private static double Percentile(List<double> sorted, double p)

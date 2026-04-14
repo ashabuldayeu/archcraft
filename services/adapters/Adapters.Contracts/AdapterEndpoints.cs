@@ -9,6 +9,33 @@ public static class AdapterEndpoints
 {
     public static IEndpointRouteBuilder MapAdapterEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapPost("/seed", async (
+            SeedRequest request,
+            IServiceProvider services,
+            CancellationToken cancellationToken) =>
+        {
+            IDataSeeder? seeder = services.GetService<IDataSeeder>();
+            if (seeder is null)
+                return Results.Ok(new { status = "no-op" });
+
+            await seeder.SeedAsync(request.Rows, cancellationToken);
+            return Results.Ok(new { status = "ok", rows = request.Rows });
+        })
+        .WithName("Seed");
+
+        app.MapPost("/clear", async (
+            IServiceProvider services,
+            CancellationToken cancellationToken) =>
+        {
+            IDataSeeder? seeder = services.GetService<IDataSeeder>();
+            if (seeder is null)
+                return Results.Ok(new { status = "no-op" });
+
+            await seeder.ClearAsync(cancellationToken);
+            return Results.Ok(new { status = "ok" });
+        })
+        .WithName("Clear");
+
         app.MapPost("/execute", async (
             ExecuteRequest request,
             HttpContext httpContext,

@@ -9,6 +9,7 @@ HttpAdapterOptions options = HttpAdapterOptions.FromEnvironment();
 
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<RetryPolicy>();
+builder.Services.AddSingleton<IDataSeeder, NoOpDataSeeder>();
 
 builder.Services.AddHttpClient("target", client =>
     client.BaseAddress = new Uri(options.TargetUrl));

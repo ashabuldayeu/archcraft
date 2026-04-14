@@ -44,9 +44,14 @@ public static class PipelineEndpoints
 
             sw.Stop();
 
+            bool hasError = results.Any(r => r.Outcome == OperationOutcome.Error);
+            string status = hasError ? "error" : "ok";
+
             metrics.HttpRequestDuration.Record(
                 sw.Elapsed.TotalSeconds,
                 new TagList { { "alias", alias }, { "http.method", "POST" } });
+
+            metrics.RequestsTotal.Add(1, new TagList { { "alias", alias }, { "status", status } });
 
             return Results.Ok(new
             {

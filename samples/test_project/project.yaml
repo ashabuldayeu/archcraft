@@ -71,12 +71,14 @@ adapters:
     port: 8080
     technology: redis
     connects_to: redis
+    seed_rows: 10000
 
   - name: pg-adapter
     image: archcraft/pg-adapter:latest
     port: 8080
     technology: postgres
     connects_to: postgres
+    seed_rows: 50000
     env:
       PG_POOL_MIN_SIZE: "10"
       PG_POOL_MAX_SIZE: "20"

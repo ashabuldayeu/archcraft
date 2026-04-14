@@ -11,6 +11,7 @@ builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<DbConnectionFactory>();
 builder.Services.AddSingleton<RetryPolicy>();
 builder.Services.AddSingleton<PgSchemaInitializer>();
+builder.Services.AddSingleton<IDataSeeder, PgDataSeeder>();
 
 builder.Services.AddSingleton<IAdapterOperation, QueryOperation>();
 builder.Services.AddSingleton<IAdapterOperation, InsertOperation>();

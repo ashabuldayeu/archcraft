@@ -165,6 +165,97 @@
           "legendFormat": "p99 {{operation}}"
         }
       ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Throughput per Endpoint (req/s)",
+      "description": "RPS breakdown by endpoint alias, summed across all instances",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (alias) (rate(synthetic_requests_total{job=~\"JOB_REGEX\"}[1m]))",
+          "legendFormat": "{{alias}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(synthetic_requests_total{job=~\"JOB_REGEX\"}[1m]))",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Throughput per Endpoint × Instance (req/s)",
+      "description": "Per-instance per-alias breakdown — shows load distribution across replicas",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(synthetic_requests_total{job=~\"JOB_REGEX\", status=\"ok\"}[1m])",
+          "legendFormat": "{{job}} / {{alias}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Error Rate per Endpoint % (alias breakdown)",
+      "description": "Application-level errors per endpoint — uses synthetic service status tag",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "(sum by (alias) (rate(synthetic_requests_total{job=~\"JOB_REGEX\", status=\"error\"}[1m])) or (sum by (alias) (rate(synthetic_requests_total{job=~\"JOB_REGEX\"}[1m])) * 0)) / sum by (alias) (rate(synthetic_requests_total{job=~\"JOB_REGEX\"}[1m])) * 100",
+          "legendFormat": "{{alias}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "OK vs Error RPS (stacked)",
+      "description": "Successful vs failed requests rate across all instances and endpoints",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "ok" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "stacking": { "group": "A", "mode": "normal" } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(synthetic_requests_total{job=~\"JOB_REGEX\", status=\"ok\"}[1m]))",
+          "legendFormat": "ok"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(synthetic_requests_total{job=~\"JOB_REGEX\", status=\"error\"}[1m])) or vector(0)",
+          "legendFormat": "error"
+        }
+      ]
     }
   ]
 }

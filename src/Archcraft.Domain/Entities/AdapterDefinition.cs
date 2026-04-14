@@ -10,4 +10,5 @@ public sealed record AdapterDefinition
     public required string Technology { get; init; }
     public string? ConnectsTo { get; init; }
     public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
+    public int SeedRows { get; init; }
 }

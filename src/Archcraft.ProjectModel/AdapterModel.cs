@@ -21,4 +21,7 @@ public sealed class AdapterModel
 
     [YamlMember(Alias = "env")]
     public Dictionary<string, string>? Env { get; set; }
+
+    [YamlMember(Alias = "seed_rows")]
+    public int SeedRows { get; set; }
 }

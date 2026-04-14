@@ -5,6 +5,7 @@ public sealed class EnvironmentContext
     private readonly Dictionary<string, RunningService> _services = new();
     private readonly Dictionary<string, RunningProxy> _proxies = new();
     private readonly Dictionary<string, List<string>> _serviceGroups = new();
+    private readonly Dictionary<string, RunningAdapter> _adapters = new();
 
     public void Register(RunningService service) =>
         _services[service.Name] = service;
@@ -47,4 +48,14 @@ public sealed class EnvironmentContext
         _proxies[proxy.Name] = proxy;
 
     public IReadOnlyCollection<RunningProxy> AllProxies => _proxies.Values;
+
+    public void RegisterAdapter(RunningAdapter adapter) =>
+        _adapters[adapter.Name] = adapter;
+
+    public RunningAdapter GetAdapter(string name) =>
+        _adapters.TryGetValue(name, out RunningAdapter? adapter)
+            ? adapter
+            : throw new InvalidOperationException($"Adapter '{name}' is not running.");
+
+    public IReadOnlyCollection<RunningAdapter> AllAdapters => _adapters.Values;
 }

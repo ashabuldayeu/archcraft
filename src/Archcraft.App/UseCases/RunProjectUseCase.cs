@@ -136,6 +136,14 @@ public sealed class RunProjectUseCase
         }
     }
 
+    // ── Adapter access ────────────────────────────────────────────────────────
+
+    public string GetAdapterBaseUrl(string adapterName) =>
+        _environmentRunner.GetAdapterBaseUrl(adapterName);
+
+    public IReadOnlyCollection<string> GetAllAdapterNames() =>
+        _environmentRunner.GetAllAdapterNames();
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static ScenarioDefinition ResolveScenarioTarget(

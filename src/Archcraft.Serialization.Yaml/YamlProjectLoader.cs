@@ -63,7 +63,8 @@ public sealed class YamlProjectLoader : IProjectLoader
             Port = new ServicePort(model.Port),
             Technology = model.Technology,
             ConnectsTo = model.ConnectsTo,
-            Env = model.Env ?? new Dictionary<string, string>()
+            Env = model.Env ?? new Dictionary<string, string>(),
+            SeedRows = model.SeedRows
         };
 
     private static ServiceDefinition MapService(ServiceModel model) =>

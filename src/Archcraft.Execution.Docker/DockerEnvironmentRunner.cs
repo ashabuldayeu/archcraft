@@ -88,7 +88,11 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             IContainer container = await StartAdapterAsync(adapter, plan.NetworkName, cancellationToken);
             _containers.Add(container);
 
-            _logger.LogInformation("Adapter '{AdapterName}' started.", adapter.Name);
+            int mappedAdapterPort = container.GetMappedPublicPort(adapter.Port.Value);
+            string baseUrl = $"http://localhost:{mappedAdapterPort}";
+            _context.RegisterAdapter(new RunningAdapter(adapter.Name, baseUrl));
+
+            _logger.LogInformation("Adapter '{AdapterName}' started at {BaseUrl}.", adapter.Name, baseUrl);
         }
     }
 
@@ -149,6 +153,7 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         ContainerBuilder builder = new ContainerBuilder(adapter.Image)
             .WithNetwork(networkName)
             .WithNetworkAliases(adapter.Name)
+            .WithPortBinding(adapter.Port.Value, true)
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilMessageIsLogged("Application started"));
 
@@ -263,7 +268,7 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         IContainer container = new ContainerBuilder(prometheus.Image)
             .WithNetwork(networkName)
             .WithNetworkAliases("prometheus")
-            .WithPortBinding(9090, true)
+            .WithPortBinding(prometheus.Port, 9090)
             .WithResourceMapping(configPath, "/etc/prometheus/")
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(req => req
@@ -287,7 +292,7 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
         IContainer container = new ContainerBuilder(grafana.Image)
             .WithNetwork(networkName)
             .WithNetworkAliases("grafana")
-            .WithPortBinding(grafana.Port, true)
+            .WithPortBinding(grafana.Port, grafana.Port)
             .WithEnvironment("GF_AUTH_ANONYMOUS_ENABLED", "true")
             .WithEnvironment("GF_AUTH_ANONYMOUS_ORG_ROLE", "Admin")
             .WithEnvironment("GF_AUTH_DISABLE_LOGIN_FORM", "true")
@@ -361,6 +366,12 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             ?? throw new InvalidOperationException($"Proxy '{proxyName}' is not running.");
         return proxy.ApiUrl;
     }
+
+    public string GetAdapterBaseUrl(string adapterName) =>
+        _context.GetAdapter(adapterName).BaseUrl;
+
+    public IReadOnlyCollection<string> GetAllAdapterNames() =>
+        _context.AllAdapters.Select(a => a.Name).ToList();
 
     private async Task EnsureNetworkAbsentAsync(string networkName, CancellationToken cancellationToken)
     {
