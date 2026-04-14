@@ -49,8 +49,10 @@ public sealed class TimelineScenarioRunner
 
         _logger.LogInformation("Running timeline scenario '{Name}'", scenario.Name);
 
+        string[] scenarioTags = ["archcraft", scenario.Name];
+
         if (annotator is not null)
-            await annotator.AnnotateAsync($"scenario: {scenario.Name}", ["archcraft", "scenario"], cancellationToken);
+            await annotator.AnnotateAsync($"scenario: {scenario.Name}", scenarioTags, cancellationToken);
 
         Stopwatch scenarioTimer = Stopwatch.StartNew();
         List<Task> rollbackTasks = [];
@@ -68,7 +70,7 @@ public sealed class TimelineScenarioRunner
 
             foreach (TimelineAction action in point.Actions)
             {
-                Task? rollback = await ExecuteActionAsync(action, plan, annotator, cancellationToken);
+                Task? rollback = await ExecuteActionAsync(action, plan, annotator, scenarioTags, cancellationToken);
                 if (rollback is not null)
                     rollbackTasks.Add(rollback);
             }
@@ -104,6 +106,7 @@ public sealed class TimelineScenarioRunner
         TimelineAction action,
         ExecutionPlan plan,
         GrafanaAnnotator? annotator,
+        string[] scenarioTags,
         CancellationToken cancellationToken)
     {
         switch (action)
@@ -114,9 +117,9 @@ public sealed class TimelineScenarioRunner
                 {
                     string loadText = $"load: {load.Rps} rps → {load.Target}/{load.Endpoint}";
                     if (load.Duration.HasValue)
-                        await annotator.AnnotateRegionAsync(loadText, ["archcraft", "load"], load.Duration.Value.Value, cancellationToken);
+                        await annotator.AnnotateRegionAsync(loadText, [..scenarioTags, "load"], load.Duration.Value.Value, cancellationToken);
                     else
-                        await annotator.AnnotateAsync(loadText, ["archcraft", "load"], cancellationToken);
+                        await annotator.AnnotateAsync(loadText, [..scenarioTags, "load"], cancellationToken);
                 }
                 if (load.Duration.HasValue)
                     return StopLoadAfterAsync(load.Target, load.Duration.Value.Value, cancellationToken);
@@ -128,9 +131,9 @@ public sealed class TimelineScenarioRunner
                 {
                     string text = $"inject_latency: +{latency.LatencyMs}ms  {latency.From} → {latency.To}";
                     if (latency.Duration.HasValue)
-                        await annotator.AnnotateRegionAsync(text, ["archcraft", "inject_latency"], latency.Duration.Value.Value, cancellationToken);
+                        await annotator.AnnotateRegionAsync(text, [..scenarioTags, "inject_latency"], latency.Duration.Value.Value, cancellationToken);
                     else
-                        await annotator.AnnotateAsync(text, ["archcraft", "inject_latency"], cancellationToken);
+                        await annotator.AnnotateAsync(text, [..scenarioTags, "inject_latency"], cancellationToken);
                 }
                 if (latency.Duration.HasValue)
                     return RemoveToxicsAfterAsync(latency.ProxyNames, "latency-inject", latency.Duration.Value.Value, cancellationToken);
@@ -142,9 +145,9 @@ public sealed class TimelineScenarioRunner
                 {
                     string text = $"inject_error: {error.ErrorRate * 100:F0}%  {error.From} → {error.To}";
                     if (error.Duration.HasValue)
-                        await annotator.AnnotateRegionAsync(text, ["archcraft", "inject_error"], error.Duration.Value.Value, cancellationToken);
+                        await annotator.AnnotateRegionAsync(text, [..scenarioTags, "inject_error"], error.Duration.Value.Value, cancellationToken);
                     else
-                        await annotator.AnnotateAsync(text, ["archcraft", "inject_error"], cancellationToken);
+                        await annotator.AnnotateAsync(text, [..scenarioTags, "inject_error"], cancellationToken);
                 }
                 if (error.Duration.HasValue)
                     return RemoveToxicsAfterAsync(error.ProxyNames, "error-inject", error.Duration.Value.Value, cancellationToken);
@@ -156,9 +159,9 @@ public sealed class TimelineScenarioRunner
                 {
                     string text = $"kill: {kill.ResolvedReplicaName}";
                     if (kill.Duration.HasValue)
-                        await annotator.AnnotateRegionAsync(text, ["archcraft", "kill"], kill.Duration.Value.Value, cancellationToken);
+                        await annotator.AnnotateRegionAsync(text, [..scenarioTags, "kill"], kill.Duration.Value.Value, cancellationToken);
                     else
-                        await annotator.AnnotateAsync(text, ["archcraft", "kill"], cancellationToken);
+                        await annotator.AnnotateAsync(text, [..scenarioTags, "kill"], cancellationToken);
                 }
                 if (kill.Duration.HasValue)
                     return RestoreAfterAsync(kill.ResolvedReplicaName!, kill.Duration.Value.Value, cancellationToken);
@@ -167,7 +170,7 @@ public sealed class TimelineScenarioRunner
             case RestoreAction restore:
                 await _environmentRunner.RestoreReplicaAsync(restore.ResolvedReplicaName!, cancellationToken);
                 if (annotator is not null)
-                    await annotator.AnnotateAsync($"restore: {restore.ResolvedReplicaName}", ["archcraft", "restore"], cancellationToken);
+                    await annotator.AnnotateAsync($"restore: {restore.ResolvedReplicaName}", [..scenarioTags, "restore"], cancellationToken);
                 return null;
 
             default:

@@ -90,7 +90,7 @@ public sealed class DashboardGenerator
         sb.AppendLine("        \"hide\": false,");
         sb.AppendLine("        \"iconColor\": \"rgba(0, 211, 255, 1)\",");
         sb.AppendLine("        \"name\": \"Archcraft Events\",");
-        sb.AppendLine("        \"type\": \"dashboard\",");
+        sb.AppendLine("        \"type\": \"tags\",");
         sb.AppendLine("        \"tags\": [\"archcraft\"]");
         sb.AppendLine("      }");
         sb.AppendLine("    ]");
