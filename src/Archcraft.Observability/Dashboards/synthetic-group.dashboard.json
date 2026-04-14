@@ -1,0 +1,170 @@
+{
+  "id": null,
+  "uid": "group-SERVICE_NAME",
+  "title": "SERVICE_NAME — Synthetic (All Instances)",
+  "schemaVersion": 38,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request Rate — Total + per Instance (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(http_server_request_duration_seconds_count{job=~\"JOB_REGEX\"}[1m]))",
+          "legendFormat": "total"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(http_server_request_duration_seconds_count{job=~\"JOB_REGEX\"}[1m])",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency p50 / p99 — Aggregate (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=~\"JOB_REGEX\"}[1m]))) * 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=~\"JOB_REGEX\"}[1m]))) * 1000",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Error Rate % (non-2xx / total)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "(sum(rate(http_server_request_duration_seconds_count{job=~\"JOB_REGEX\", http_response_status_code=~\"5..\"}[1m])) or vector(0)) / sum(rate(http_server_request_duration_seconds_count{job=~\"JOB_REGEX\"}[1m])) * 100",
+          "legendFormat": "error % total"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "(rate(http_server_request_duration_seconds_count{job=~\"JOB_REGEX\", http_response_status_code=~\"5..\"}[1m]) or (rate(http_server_request_duration_seconds_count{job=~\"JOB_REGEX\"}[1m]) * 0)) / rate(http_server_request_duration_seconds_count{job=~\"JOB_REGEX\"}[1m]) * 100",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "p99 Latency per Instance (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum by (le, job) (rate(http_server_request_duration_seconds_bucket{job=~\"JOB_REGEX\"}[1m]))) * 1000",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Kestrel Active Connections per Instance",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "kestrel_active_connections{job=~\"JOB_REGEX\"}",
+          "legendFormat": "{{job}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(kestrel_active_connections{job=~\"JOB_REGEX\"})",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Memory Pool — Pooled Bytes (ASP.NET)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0 }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "aspnetcore_memory_pool_pooled_bytes{job=~\"JOB_REGEX\"}",
+          "legendFormat": "pooled {{job}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(aspnetcore_memory_pool_rented_bytes_total{job=~\"JOB_REGEX\"}[1m])",
+          "legendFormat": "rented/s {{job}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Operations / sec (aggregate by type)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (operation) (rate(operation_calls_total{job=~\"JOB_REGEX\"}[1m]))",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Operation Latency p50 / p99 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.5, sum by (le, operation) (rate(operation_duration_seconds_bucket{job=~\"JOB_REGEX\"}[1m]))) * 1000",
+          "legendFormat": "p50 {{operation}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(operation_duration_seconds_bucket{job=~\"JOB_REGEX\"}[1m]))) * 1000",
+          "legendFormat": "p99 {{operation}}"
+        }
+      ]
+    }
+  ]
+}

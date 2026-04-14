@@ -121,7 +121,7 @@ scenarios:
             target: frontend
             endpoint: handle
             rps: 500
-            duration: 10s
+            duration: 20s
 
   # Базовая нагрузка — 15000 RPS × 30s
   - name: baseline
@@ -132,8 +132,8 @@ scenarios:
           - type: load
             target: frontend      # DNS RR → frontend-proxy-0, frontend-proxy-1, frontend-proxy-2
             endpoint: handle
-            rps: 5000
-            duration: 40s
+            rps: 25000
+            duration: 120s
 
   # Деградация Redis — затрагивает redis-proxy → все реплики backend
   - name: redis-degradation
@@ -144,11 +144,11 @@ scenarios:
           - type: load
             target: frontend
             endpoint: handle
-            rps: 500
+            rps: 25000
       - at: 5s
         actions:
           - type: inject_latency
-            duration: 10s
+            duration: 120s
             target:
               from: backend
               to: redis           # redis-proxy — единый для всех реплик backend
@@ -163,16 +163,16 @@ scenarios:
           - type: load
             target: frontend
             endpoint: handle
-            rps: 500
-      - at: 5s
+            rps: 25000
+      - at: 60s
         actions:
           - type: kill
             target: backend[1]    # останавливаем backend-1; backend-proxy-1 продолжает работать
-            duration: 15s         # auto-restore через 15s
-      - at: 10s
+            duration: 120s         # auto-restore через 15s
+      - at: 180s
         actions:
           - type: inject_latency
-            duration: 5s
+            duration: 60s
             target:
               from: frontend
               to: backend[2]      # только backend-proxy-2 получает задержку
@@ -187,20 +187,20 @@ scenarios:
           - type: load
             target: frontend
             endpoint: handle
-            rps: 500
-      - at: 5s
+            rps: 25000
+      - at: 60s
         actions:
           - type: inject_latency
-            duration: 10s
+            duration: 60s
             target:
               from: frontend
               to: backend         # fan-out: backend-proxy-0, backend-proxy-1, backend-proxy-2
             latency: 200ms
-      - at: 10s
+      - at: 120s
         actions:
           - type: kill
             target: backend[0]
-            duration: 8s
+            duration: 60s
 
 # ── Observability ─────────────────────────────────────────────────────────────
 

@@ -16,19 +16,24 @@ public sealed class DashboardGenerator
         string dashboardsDir = Path.Combine(projectDirectory, "dashboards");
         Directory.CreateDirectory(dashboardsDir);
 
-        ObservabilityDefinition obs = plan.Observability;
-
         WritePrometheusConfig(dashboardsDir, plan);
         WriteGrafanaDatasource(dashboardsDir);
         WriteGrafanaDashboardProvisioning(dashboardsDir);
 
-        IReadOnlyList<ServiceDefinition> syntheticServices = plan.OrderedServices
+        ObservabilityDefinition obs = plan.Observability;
+
+        // Group synthetic services by service group (or own name for non-replicated)
+        List<SyntheticGroup> syntheticGroups = plan.OrderedServices
             .Where(s => s.SyntheticEndpoints.Count > 0)
+            .GroupBy(s => s.ServiceGroup ?? s.Name)
+            .Select(g => new SyntheticGroup(g.Key, g.Select(s => s.Name).ToList()))
             .ToList();
 
-        foreach (ServiceDefinition service in syntheticServices)
-            WriteDashboard(dashboardsDir, "Dashboards.synthetic.dashboard.json", service.Name, $"{service.Name}.json");
+        // Aggregate dashboard per service group
+        foreach (SyntheticGroup group in syntheticGroups)
+            WriteGroupDashboard(dashboardsDir, group);
 
+        // Exporter dashboards (postgres, redis)
         foreach (ExporterDefinition exporter in obs.Exporters)
         {
             if (exporter.Technology == "redis")
@@ -37,7 +42,20 @@ public sealed class DashboardGenerator
                 WriteDashboard(dashboardsDir, "Dashboards.postgres.dashboard.json", exporter.ServiceName, $"postgres-{exporter.ServiceName}.json");
         }
 
+        // Project-wide overview dashboard
+        WriteOverviewDashboard(dashboardsDir, plan, syntheticGroups);
+
         return Task.CompletedTask;
+    }
+
+    private static void WriteGroupDashboard(string dashboardsDir, SyntheticGroup group)
+    {
+        string template = ReadEmbeddedResource("Dashboards.synthetic-group.dashboard.json");
+        string jobRegex = string.Join("|", group.Instances);
+        string content = template
+            .Replace("SERVICE_NAME", group.Name)
+            .Replace("JOB_REGEX", jobRegex);
+        File.WriteAllText(Path.Combine(dashboardsDir, $"{group.Name}.json"), content);
     }
 
     private static void WriteDashboard(string dashboardsDir, string resourceSuffix, string serviceName, string outputFileName)
@@ -46,6 +64,119 @@ public sealed class DashboardGenerator
         string content = template.Replace("SERVICE_NAME", serviceName);
         File.WriteAllText(Path.Combine(dashboardsDir, outputFileName), content);
     }
+
+    private static void WriteOverviewDashboard(
+        string dashboardsDir,
+        ExecutionPlan plan,
+        List<SyntheticGroup> syntheticGroups)
+    {
+        StringBuilder sb = new();
+        int panelId = 1;
+        int y = 0;
+
+        sb.AppendLine("{");
+        sb.AppendLine("  \"id\": null,");
+        sb.AppendLine($"  \"uid\": \"overview-{plan.ProjectName.ToLowerInvariant().Replace(' ', '-')}\",");
+        sb.AppendLine($"  \"title\": \"{plan.ProjectName} — Overview\",");
+        sb.AppendLine("  \"schemaVersion\": 38,");
+        sb.AppendLine("  \"refresh\": \"5s\",");
+        sb.AppendLine("  \"time\": { \"from\": \"now-15m\", \"to\": \"now\" },");
+        sb.AppendLine("  \"panels\": [");
+
+        List<string> panels = [];
+
+        // ── Synthetic services ──────────────────────────────────────────────────
+
+        foreach (SyntheticGroup group in syntheticGroups)
+        {
+            string jobRegex = string.Join("|", group.Instances);
+
+            panels.Add(OverviewPanel(panelId++, $"{group.Name} — RPS (req/s)", "reqps", 8, 0, y,
+                $"sum(rate(http_server_request_duration_seconds_count{{job=~\\\"{jobRegex}\\\"}}[1m]))", "total"));
+
+            panels.Add(OverviewPanel(panelId++, $"{group.Name} — p99 Latency (ms)", "ms", 8, 8, y,
+                $"histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{{job=~\\\"{jobRegex}\\\"}}[1m]))) * 1000", "p99"));
+
+            panels.Add(OverviewErrorPanel(panelId++, $"{group.Name} — Error Rate (req/s)", 8, 16, y,
+                $"sum(rate(http_server_request_duration_seconds_count{{job=~\\\"{jobRegex}\\\", http_response_status_code=~\\\"5..\\\"}}[1m]))", "errors/s"));
+
+            y += 8;
+        }
+
+        // ── Infrastructure ──────────────────────────────────────────────────────
+
+        if (plan.Observability is not null)
+        {
+            foreach (ExporterDefinition exporter in plan.Observability.Exporters)
+            {
+                string job = $"{exporter.ServiceName}-exporter";
+
+                if (exporter.Technology == "postgres")
+                {
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Active Connections", "short", 12, 0, y,
+                        $"sum(pg_stat_database_numbackends{{job=\\\"{job}\\\"}})", "connections"));
+
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Max Query Duration (ms)", "ms", 12, 12, y,
+                        $"pg_stat_activity_max_tx_duration{{job=\\\"{job}\\\", state=\\\"active\\\"}} * 1000", "active (ms)"));
+
+                    y += 8;
+                }
+                else if (exporter.Technology == "redis")
+                {
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Ops / sec", "ops", 12, 0, y,
+                        $"sum(rate(redis_commands_processed_total{{job=\\\"{job}\\\"}}[1m]))", "ops/s"));
+
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Memory Used (bytes)", "bytes", 12, 12, y,
+                        $"redis_memory_used_bytes{{job=\\\"{job}\\\"}}", "memory"));
+
+                    y += 8;
+                }
+            }
+        }
+
+        sb.Append(string.Join(",\n", panels));
+        sb.AppendLine();
+        sb.AppendLine("  ]");
+        sb.AppendLine("}");
+
+        File.WriteAllText(Path.Combine(dashboardsDir, "_overview.json"), sb.ToString());
+    }
+
+    private static string OverviewPanel(int id, string title, string unit, int w, int x, int y, string expr, string legend) =>
+        $$"""
+            {
+              "id": {{id}},
+              "type": "timeseries",
+              "title": "{{title}}",
+              "gridPos": { "h": 8, "w": {{w}}, "x": {{x}}, "y": {{y}} },
+              "fieldConfig": { "defaults": { "unit": "{{unit}}", "min": 0 } },
+              "targets": [
+                {
+                  "datasource": "Prometheus",
+                  "expr": "{{expr}}",
+                  "legendFormat": "{{legend}}"
+                }
+              ]
+            }
+        """;
+
+    private static string OverviewErrorPanel(int id, string title, int w, int x, int y, string expr, string legend) =>
+        $$"""
+            {
+              "id": {{id}},
+              "type": "timeseries",
+              "title": "{{title}}",
+              "gridPos": { "h": 8, "w": {{w}}, "x": {{x}}, "y": {{y}} },
+              "fieldConfig": { "defaults": { "unit": "reqps", "min": 0, "color": { "fixedColor": "red", "mode": "fixed" } } },
+              "targets": [
+                {
+                  "datasource": "Prometheus",
+                  "expr": "{{expr}}",
+                  "legendFormat": "{{legend}}"
+                }
+              ]
+            }
+        """;
 
     private static string ReadEmbeddedResource(string resourceSuffix)
     {
@@ -104,4 +235,6 @@ public sealed class DashboardGenerator
         File.WriteAllText(Path.Combine(provDir, "dashboards.yml"),
             ReadEmbeddedResource("Templates.grafana-dashboards.yml"));
     }
+
+    private sealed record SyntheticGroup(string Name, List<string> Instances);
 }

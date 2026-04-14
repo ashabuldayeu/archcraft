@@ -2,6 +2,8 @@ using System.Net.Http.Json;
 using Archcraft.Contracts;
 using Archcraft.Domain.Entities;
 using Archcraft.Execution;
+using Docker.DotNet;
+using Docker.DotNet.Models;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
@@ -27,6 +29,7 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
     {
         TestcontainersSettings.WaitStrategyTimeout = TimeSpan.FromMinutes(2);
 
+        await EnsureNetworkAbsentAsync(plan.NetworkName, cancellationToken);
         _logger.LogInformation("Creating Docker network '{NetworkName}'...", plan.NetworkName);
         _network = new NetworkBuilder()
             .WithName(plan.NetworkName)
@@ -357,6 +360,30 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             .FirstOrDefault(p => p.Name == proxyName)
             ?? throw new InvalidOperationException($"Proxy '{proxyName}' is not running.");
         return proxy.ApiUrl;
+    }
+
+    private async Task EnsureNetworkAbsentAsync(string networkName, CancellationToken cancellationToken)
+    {
+        using DockerClientConfiguration config = new();
+        using IDockerClient client = config.CreateClient();
+
+        IList<NetworkResponse> networks = await client.Networks.ListNetworksAsync(
+            new NetworksListParameters
+            {
+                Filters = new Dictionary<string, IDictionary<string, bool>>
+                {
+                    ["name"] = new Dictionary<string, bool> { [networkName] = true }
+                }
+            }, cancellationToken);
+
+        NetworkResponse? existing = networks.FirstOrDefault(n =>
+            string.Equals(n.Name, networkName, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is not null)
+        {
+            Console.WriteLine($"  [warn] Docker network '{networkName}' already exists — removing and recreating.");
+            await client.Networks.DeleteNetworkAsync(existing.ID, cancellationToken);
+        }
     }
 
     public async ValueTask DisposeAsync()
