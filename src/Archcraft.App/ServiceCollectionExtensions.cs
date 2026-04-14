@@ -7,6 +7,7 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddArchcraftApp(this IServiceCollection services)
     {
+        services.AddTransient<NewProjectUseCase>();
         services.AddTransient<RunProjectUseCase>();
         services.AddTransient<ValidateProjectUseCase>();
         services.AddTransient<InteractiveSessionUseCase>();

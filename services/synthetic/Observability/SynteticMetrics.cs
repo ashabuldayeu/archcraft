@@ -18,6 +18,18 @@ public sealed class SynteticMetrics : IDisposable
     /// </summary>
     public Counter<long> RequestsTotal { get; }
 
+    /// <summary>
+    /// Outbound edge call duration. Tags: client (this service), operation (e.g. "redis-call").
+    /// Exported as archcraft_edge_duration_seconds in Prometheus.
+    /// </summary>
+    public Histogram<double> EdgeDuration { get; }
+
+    /// <summary>
+    /// Outbound edge call counter. Tags: client, operation, status ("ok" | "error" | "not_found").
+    /// Exported as archcraft_edge_requests_total in Prometheus.
+    /// </summary>
+    public Counter<long> EdgeRequestsTotal { get; }
+
     public SynteticMetrics(string serviceName)
     {
         _meter = new Meter(MeterName, "1.0.0");
@@ -39,6 +51,15 @@ public sealed class SynteticMetrics : IDisposable
         RequestsTotal = _meter.CreateCounter<long>(
             "synthetic.requests",
             description: "Total requests handled per endpoint alias and status");
+
+        EdgeDuration = _meter.CreateHistogram<double>(
+            "archcraft.edge.duration",
+            unit: "s",
+            description: "Duration of outbound adapter calls per operation");
+
+        EdgeRequestsTotal = _meter.CreateCounter<long>(
+            "archcraft.edge.requests",
+            description: "Total outbound adapter calls per operation and status");
     }
 
     public void Dispose() => _meter.Dispose();

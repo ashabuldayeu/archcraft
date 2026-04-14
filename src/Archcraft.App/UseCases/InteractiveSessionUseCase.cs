@@ -95,6 +95,7 @@ public sealed class InteractiveSessionUseCase
                                 sessionResults.Select(r => r.Snapshot).ToList());
                             report = report with { GrafanaUrl = grafanaUrl };
                             await JsonReportWriter.WriteAsync(report, projectFilePath, CancellationToken.None);
+                            await HtmlReportWriter.WriteAsync(report, projectFilePath, CancellationToken.None);
                         }
                         break;
 

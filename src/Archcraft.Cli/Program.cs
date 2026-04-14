@@ -38,9 +38,11 @@ ServiceProvider provider = services.BuildServiceProvider();
 
 RootCommand root = new("Archcraft — declarative backend sandbox & scenario runner")
 {
+    NewCommand.Build(provider),
     RunCommand.Build(provider),
     ValidateCommand.Build(provider),
-    ScenarioCommand.Build(provider)
+    ScenarioCommand.Build(provider),
+    HelpCommand.Build()
 };
 
 return await root.Parse(args).InvokeAsync();

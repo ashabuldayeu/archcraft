@@ -81,6 +81,20 @@ public sealed class DashboardGenerator
         sb.AppendLine("  \"schemaVersion\": 38,");
         sb.AppendLine("  \"refresh\": \"5s\",");
         sb.AppendLine("  \"time\": { \"from\": \"now-15m\", \"to\": \"now\" },");
+        sb.AppendLine("  \"annotations\": {");
+        sb.AppendLine("    \"list\": [");
+        sb.AppendLine("      {");
+        sb.AppendLine("        \"builtIn\": 1,");
+        sb.AppendLine("        \"datasource\": { \"type\": \"grafana\", \"uid\": \"-- Grafana --\" },");
+        sb.AppendLine("        \"enable\": true,");
+        sb.AppendLine("        \"hide\": false,");
+        sb.AppendLine("        \"iconColor\": \"rgba(0, 211, 255, 1)\",");
+        sb.AppendLine("        \"name\": \"Archcraft Events\",");
+        sb.AppendLine("        \"type\": \"dashboard\",");
+        sb.AppendLine("        \"tags\": [\"archcraft\"]");
+        sb.AppendLine("      }");
+        sb.AppendLine("    ]");
+        sb.AppendLine("  },");
         sb.AppendLine("  \"panels\": [");
 
         List<string> panels = [];
@@ -134,6 +148,20 @@ public sealed class DashboardGenerator
             }
         }
 
+        // ── Topology edge panels ────────────────────────────────────────────────
+
+        List<string> allOperations = plan.OrderedServices
+            .SelectMany(s => s.SyntheticOperations)
+            .Distinct()
+            .ToList();
+
+        if (allOperations.Count > 0)
+        {
+            panels.Add(TopologyLatencyPanel(panelId++, y));
+            panels.Add(TopologyErrorPanel(panelId++, y));
+            y += 8;
+        }
+
         sb.Append(string.Join(",\n", panels));
         sb.AppendLine();
         sb.AppendLine("  ]");
@@ -177,6 +205,67 @@ public sealed class DashboardGenerator
               ]
             }
         """;
+
+    private static string TopologyLatencyPanel(int id, int y)
+    {
+        string opLabel = "{{operation}}";
+        return $$"""
+            {
+              "id": {{id}},
+              "type": "timeseries",
+              "title": "Service Topology — Edge p99 Latency (ms)",
+              "description": "p99 latency per outbound operation across all synthetic service instances. A spike on a specific operation pinpoints which dependency is the bottleneck.",
+              "gridPos": { "h": 8, "w": 12, "x": 0, "y": {{y}} },
+              "fieldConfig": { "defaults": { "unit": "ms", "min": 0 } },
+              "targets": [
+                {
+                  "datasource": "Prometheus",
+                  "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(archcraft_edge_duration_seconds_bucket[1m]))) * 1000",
+                  "legendFormat": "{{opLabel}} p99"
+                },
+                {
+                  "datasource": "Prometheus",
+                  "expr": "histogram_quantile(0.5, sum by (le, operation) (rate(archcraft_edge_duration_seconds_bucket[1m]))) * 1000",
+                  "legendFormat": "{{opLabel}} p50"
+                }
+              ]
+            }
+        """;
+    }
+
+    private static string TopologyErrorPanel(int id, int y)
+    {
+        string opLabel = "{{operation}}";
+        return $$"""
+            {
+              "id": {{id}},
+              "type": "timeseries",
+              "title": "Service Topology — Edge Error Rate % per Operation",
+              "description": "Error + not_found rate per outbound operation. Identifies which dependency is failing and on which service group.",
+              "gridPos": { "h": 8, "w": 12, "x": 12, "y": {{y}} },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent", "min": 0, "max": 100,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      { "color": "green",  "value": null },
+                      { "color": "yellow", "value": 1 },
+                      { "color": "red",    "value": 5 }
+                    ]
+                  }
+                }
+              },
+              "targets": [
+                {
+                  "datasource": "Prometheus",
+                  "expr": "(sum by (operation) (rate(archcraft_edge_requests_total{status=~\"error|not_found\"}[1m])) or (sum by (operation) (rate(archcraft_edge_requests_total[1m])) * 0)) / sum by (operation) (rate(archcraft_edge_requests_total[1m])) * 100",
+                  "legendFormat": "{{opLabel}}"
+                }
+              ]
+            }
+        """;
+    }
 
     private static string ReadEmbeddedResource(string resourceSuffix)
     {

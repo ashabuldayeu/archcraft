@@ -18,6 +18,8 @@ public sealed class RunProjectUseCase
     private readonly DashboardGenerator _dashboardGenerator;
     private readonly ILogger<RunProjectUseCase> _logger;
 
+    private string? _grafanaUrl;
+
     public RunProjectUseCase(
         IProjectLoader loader,
         IProjectCompiler compiler,
@@ -56,6 +58,7 @@ public sealed class RunProjectUseCase
         string? grafanaUrl = await _environmentRunner.StartObservabilityAsync(
             plan, projectDirectory, cancellationToken);
 
+        _grafanaUrl = grafanaUrl;
         return (plan, grafanaUrl);
     }
 
@@ -107,7 +110,7 @@ public sealed class RunProjectUseCase
 
         foreach (TimelineScenarioDefinition scenario in timelinesToRun)
         {
-            MetricSnapshot snapshot = await _timelineRunner.RunAsync(scenario, plan, cancellationToken);
+            MetricSnapshot snapshot = await _timelineRunner.RunAsync(scenario, plan, _grafanaUrl, cancellationToken);
             snapshots.Add(snapshot);
         }
 

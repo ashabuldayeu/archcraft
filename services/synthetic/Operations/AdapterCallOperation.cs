@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Adapters.Contracts;
 using Microsoft.Extensions.Configuration;
+using SynteticApi.Configuration;
+using SynteticApi.Observability;
 
 namespace SynteticApi.Operations;
 
@@ -11,14 +13,20 @@ public sealed class AdapterCallOperation
 
     private readonly Dictionary<string, string> _adapterUrls;
     private readonly AdapterHttpClient _httpClient;
+    private readonly SynteticMetrics _metrics;
+    private readonly string _serviceName;
     private readonly ILogger<AdapterCallOperation> _logger;
 
     public AdapterCallOperation(
         IConfiguration configuration,
         AdapterHttpClient httpClient,
+        SynteticMetrics metrics,
+        SynteticApiOptions options,
         ILogger<AdapterCallOperation> logger)
     {
         _httpClient = httpClient;
+        _metrics = metrics;
+        _serviceName = options.ServiceName;
         _logger = logger;
         _adapterUrls = LoadAdapterUrls(configuration);
     }
@@ -44,12 +52,25 @@ public sealed class AdapterCallOperation
 
         sw.Stop();
 
-        return response.Outcome switch
+        OperationResult result = response.Outcome switch
         {
             AdapterOutcome.NotFound => OperationResult.NotFound(sw.Elapsed),
             AdapterOutcome.Error    => OperationResult.Error(sw.Elapsed),
             _                      => OperationResult.Success(sw.Elapsed)
         };
+
+        string status = result.Outcome switch
+        {
+            OperationOutcome.Success  => "ok",
+            OperationOutcome.NotFound => "not_found",
+            _                        => "error"
+        };
+
+        TagList tags = new() { { "client", _serviceName }, { "operation", operationType } };
+        _metrics.EdgeDuration.Record(sw.Elapsed.TotalSeconds, tags);
+        _metrics.EdgeRequestsTotal.Add(1, new TagList { { "client", _serviceName }, { "operation", operationType }, { "status", status } });
+
+        return result;
     }
 
     private static Dictionary<string, string> LoadAdapterUrls(IConfiguration configuration)
