@@ -162,6 +162,22 @@ Grafana runs at the port you configure (e.g., `localhost:3000`) with anonymous a
 
 ---
 
+## Installation
+
+**Requirements:** [.NET 10 SDK](https://dotnet.microsoft.com/download) and [Docker](https://www.docker.com/products/docker-desktop)
+
+```bash
+dotnet tool install -g archcraft
+```
+
+To update to the latest version:
+
+```bash
+dotnet tool update -g archcraft
+```
+
+---
+
 ## Getting Started
 
 ```bash

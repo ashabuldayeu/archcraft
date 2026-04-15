@@ -7,11 +7,22 @@
     <Nullable>enable</Nullable>
     <AssemblyName>archcraft</AssemblyName>
     <RootNamespace>Archcraft.Cli</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.0.1</Version>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>archcraft</ToolCommandName>
-    <PackageId>Archcraft.Cli</PackageId>
+    <PackageId>archcraft</PackageId>
+    <Authors>ashabuldayeu</Authors>
+    <Description>Declarative backend sandbox for load testing and chaos engineering. Define your service topology in YAML, run it in Docker, inject failures, and observe results — all from a single interactive CLI.</Description>
+    <PackageTags>system-design load-testing chaos-engineering dotnet cli benchmark</PackageTags>
+    <RepositoryUrl>https://github.com/ashabuldayeu/archcraft</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Archcraft.App\Archcraft.App.csproj" />
