@@ -33,13 +33,15 @@ public sealed class DashboardGenerator
         foreach (SyntheticGroup group in syntheticGroups)
             WriteGroupDashboard(dashboardsDir, group);
 
-        // Exporter dashboards (postgres, redis)
+        // Exporter dashboards (postgres, redis, kafka)
         foreach (ExporterDefinition exporter in obs.Exporters)
         {
             if (exporter.Technology == "redis")
                 WriteDashboard(dashboardsDir, "Dashboards.redis.dashboard.json", exporter.ServiceName, $"redis-{exporter.ServiceName}.json");
             else if (exporter.Technology == "postgres")
                 WriteDashboard(dashboardsDir, "Dashboards.postgres.dashboard.json", exporter.ServiceName, $"postgres-{exporter.ServiceName}.json");
+            else if (exporter.Technology == "kafka")
+                WriteDashboard(dashboardsDir, "Dashboards.kafka.dashboard.json", exporter.ServiceName, $"kafka-{exporter.ServiceName}.json");
         }
 
         // Project-wide overview dashboard
@@ -142,6 +144,16 @@ public sealed class DashboardGenerator
 
                     panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Memory Used (bytes)", "bytes", 12, 12, y,
                         $"redis_memory_used_bytes{{job=\\\"{job}\\\"}}", "memory"));
+
+                    y += 8;
+                }
+                else if (exporter.Technology == "kafka")
+                {
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Consumer Lag (total)", "short", 12, 0, y,
+                        $"sum(kafka_consumergroup_lag{{job=\\\"{job}\\\"}})", "lag"));
+
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Messages Produced / sec", "msgps", 12, 12, y,
+                        $"sum(rate(kafka_topic_partition_current_offset{{job=\\\"{job}\\\", topic!~\\\"__.*\\\"}}[1m]))", "msg/s"));
 
                     y += 8;
                 }

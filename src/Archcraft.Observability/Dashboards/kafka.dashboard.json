@@ -1,0 +1,210 @@
+{
+  "id": null,
+  "uid": "kafka-SERVICE_NAME",
+  "title": "SERVICE_NAME — Kafka",
+  "schemaVersion": 38,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Archcraft Events",
+        "type": "tags",
+        "tags": ["archcraft"]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Brokers Online",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "kafka_brokers{job=\"SERVICE_NAME-exporter\"}",
+          "legendFormat": "brokers"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Topic Partitions",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "count(kafka_topic_partition_current_offset{job=\"SERVICE_NAME-exporter\", topic!~\"__.*\"})",
+          "legendFormat": "partitions"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Total Consumer Lag",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red",    "value": 10000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(kafka_consumergroup_lag{job=\"SERVICE_NAME-exporter\"})",
+          "legendFormat": "total lag"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Consumer Groups",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "count(count by (consumergroup) (kafka_consumergroup_lag{job=\"SERVICE_NAME-exporter\"}))",
+          "legendFormat": "groups"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Consumer Members",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(kafka_consumergroup_members{job=\"SERVICE_NAME-exporter\"})",
+          "legendFormat": "members"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Consumer Lag by Group",
+      "description": "Messages behind per consumer group. Rising lag means consumers are slower than producers.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red",    "value": 10000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (consumergroup) (kafka_consumergroup_lag{job=\"SERVICE_NAME-exporter\"})",
+          "legendFormat": "{{consumergroup}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Messages Produced / sec (by topic)",
+      "description": "Rate of new messages written to each topic, derived from current offset growth.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "msgps", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{job=\"SERVICE_NAME-exporter\", topic!~\"__.*\"}[1m]))",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Messages Consumed / sec (by group)",
+      "description": "Rate of offset advancement per consumer group — effective throughput of consumers.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "msgps", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (consumergroup) (rate(kafka_consumergroup_current_offset{job=\"SERVICE_NAME-exporter\"}[1m]))",
+          "legendFormat": "{{consumergroup}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Lag per Partition",
+      "description": "Per-partition consumer lag. Uneven lag across partitions indicates skewed consumption.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "kafka_consumergroup_lag{job=\"SERVICE_NAME-exporter\"}",
+          "legendFormat": "{{consumergroup}} / partition {{partition}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Topic Offset Growth (current vs oldest)",
+      "description": "Gap between current and oldest available offset — effective retention window in messages.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (topic) (kafka_topic_partition_current_offset{job=\"SERVICE_NAME-exporter\", topic!~\"__.*\"})",
+          "legendFormat": "{{topic}} current"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (topic) (kafka_topic_partition_oldest_offset{job=\"SERVICE_NAME-exporter\", topic!~\"__.*\"})",
+          "legendFormat": "{{topic}} oldest"
+        }
+      ]
+    }
+  ]
+}

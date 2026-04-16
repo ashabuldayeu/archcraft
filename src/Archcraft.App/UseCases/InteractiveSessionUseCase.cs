@@ -269,7 +269,7 @@ public sealed class InteractiveSessionUseCase
     private static IReadOnlyList<AdapterDefinition> ResolveAdapterTargets(ExecutionPlan plan, string? arg)
     {
         if (arg is null or "all")
-            return plan.Adapters;
+            return plan.Adapters.Where(a => !IsStateless(a)).ToList();
 
         AdapterDefinition? adapter = plan.Adapters.FirstOrDefault(a => a.Name == arg);
         if (adapter is null)
@@ -278,8 +278,18 @@ public sealed class InteractiveSessionUseCase
             return [];
         }
 
+        if (IsStateless(adapter))
+        {
+            Console.WriteLine($"  [{adapter.Name}] Adapter technology '{adapter.Technology}' does not support seed/clear — skipping.");
+            return [];
+        }
+
         return [adapter];
     }
+
+    private static bool IsStateless(AdapterDefinition adapter) =>
+        string.Equals(adapter.Technology, "kafka", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(adapter.Technology, "http", StringComparison.OrdinalIgnoreCase);
 
     private async Task<IReadOnlyList<MetricSnapshot>> HandleRunAsync(
         ExecutionPlan plan,

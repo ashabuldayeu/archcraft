@@ -17,6 +17,7 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
     private readonly ILogger<DockerEnvironmentRunner> _logger;
     private readonly List<IContainer> _containers = [];
     private readonly Dictionary<string, IContainer> _containerByServiceName = new();
+    private readonly Dictionary<string, IContainer> _consumerAdapterByReplica = new();
     private readonly EnvironmentContext _context = new();
     private INetwork? _network;
 
@@ -91,6 +92,9 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
             int mappedAdapterPort = container.GetMappedPublicPort(adapter.Port.Value);
             string baseUrl = $"http://localhost:{mappedAdapterPort}";
             _context.RegisterAdapter(new RunningAdapter(adapter.Name, baseUrl));
+
+            if (adapter.KafkaConsumer is not null && adapter.PairedReplicaName is not null)
+                _consumerAdapterByReplica[adapter.PairedReplicaName] = container;
 
             _logger.LogInformation("Adapter '{AdapterName}' started at {BaseUrl}.", adapter.Name, baseUrl);
         }
@@ -194,6 +198,13 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
                     .UntilMessageIsLogged(service.Readiness.LogPattern,
                         r => r.WithTimeout(service.Readiness.Timeout.Value)));
         }
+        else if (service.Readiness?.TcpPort is not null)
+        {
+            builder = builder.WithWaitStrategy(
+                Wait.ForUnixContainer()
+                    .UntilInternalTcpPortIsAvailable(service.Readiness.TcpPort.Value,
+                        o => o.WithTimeout(service.Readiness.Timeout.Value)));
+        }
 
         IContainer container = builder.Build();
         await container.StartAsync(cancellationToken);
@@ -251,6 +262,9 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
 
         foreach ((string key, string value) in exporter.Env)
             builder = builder.WithEnvironment(key, value);
+
+        if (exporter.Args.Count > 0)
+            builder = builder.WithCommand(exporter.Args.ToArray());
 
         IContainer container = builder.Build();
         await container.StartAsync(cancellationToken);
@@ -335,6 +349,13 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
 
         _logger.LogInformation("Killing replica '{ReplicaName}'...", replicaName);
         await container.StopAsync(cancellationToken);
+
+        if (_consumerAdapterByReplica.TryGetValue(replicaName, out IContainer? adapterContainer))
+        {
+            _logger.LogInformation("Stopping consumer adapter for replica '{ReplicaName}'...", replicaName);
+            await adapterContainer.StopAsync(cancellationToken);
+        }
+
         _logger.LogInformation("Replica '{ReplicaName}' killed.", replicaName);
     }
 
@@ -345,6 +366,13 @@ public sealed class DockerEnvironmentRunner : IEnvironmentRunner
 
         _logger.LogInformation("Restoring replica '{ReplicaName}'...", replicaName);
         await container.StartAsync(cancellationToken);
+
+        if (_consumerAdapterByReplica.TryGetValue(replicaName, out IContainer? adapterContainer))
+        {
+            _logger.LogInformation("Restoring consumer adapter for replica '{ReplicaName}'...", replicaName);
+            await adapterContainer.StartAsync(cancellationToken);
+        }
+
         _logger.LogInformation("Replica '{ReplicaName}' restored.", replicaName);
     }
 

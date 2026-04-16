@@ -24,4 +24,7 @@ public sealed class AdapterModel
 
     [YamlMember(Alias = "seed_rows")]
     public int SeedRows { get; set; }
+
+    [YamlMember(Alias = "consumer")]
+    public KafkaConsumerModel? Consumer { get; set; }
 }

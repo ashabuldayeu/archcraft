@@ -8,9 +8,10 @@ public sealed class TopologyValidator : ITopologyValidator
     internal static readonly IReadOnlyDictionary<string, string> OperationTechnologyMap =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["redis-call"] = "redis",
-            ["pg-call"]    = "postgres",
-            ["http-call"]  = "http"
+            ["redis-call"]  = "redis",
+            ["pg-call"]     = "postgres",
+            ["http-call"]   = "http",
+            ["kafka-push"]  = "kafka"
         };
 
     public ValidationResult Validate(

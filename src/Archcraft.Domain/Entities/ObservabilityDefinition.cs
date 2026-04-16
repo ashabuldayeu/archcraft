@@ -27,4 +27,5 @@ public sealed record ExporterDefinition
     public required string Technology { get; init; }
     public required int ExporterPort { get; init; }
     public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyList<string> Args { get; init; } = [];
 }

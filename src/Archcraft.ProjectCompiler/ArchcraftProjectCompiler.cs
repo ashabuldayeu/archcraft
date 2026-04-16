@@ -151,7 +151,11 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                 foreach (string adapterBaseName in service.SyntheticAdapters)
                 {
                     if (adapterByName.TryGetValue(adapterBaseName, out AdapterDefinition? orig))
-                        adapters.Add(orig with { Name = $"{adapterBaseName}-{i}" });
+                        adapters.Add(orig with
+                        {
+                            Name = $"{adapterBaseName}-{i}",
+                            PairedReplicaName = replicaName
+                        });
                 }
             }
         }
@@ -661,6 +665,35 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                 return adapter with { Env = env };
             }
 
+            if (adapter.Technology == "kafka")
+            {
+                ServiceDefinition kafkaService = lookup[resolvedTarget];
+                string brokers = $"{resolvedTarget}:{kafkaService.Port.Value}";
+                string topic = adapter.Name.Contains('-')
+                    ? adapter.Name[..adapter.Name.LastIndexOf('-')]  // strip replica index → base name
+                    : adapter.Name;
+
+                Dictionary<string, string> env = new(adapter.Env)
+                {
+                    ["KAFKA_BROKERS"] = brokers,
+                    ["KAFKA_TOPIC"]   = topic
+                };
+
+                if (adapter.KafkaConsumer is not null && adapter.PairedReplicaName is not null)
+                {
+                    ServiceDefinition pairedService = services[adapter.PairedReplicaName];
+                    string targetUrl = $"http://{adapter.PairedReplicaName}:{pairedService.Port.Value}";
+
+                    env["KAFKA_CONSUMER_GROUP_ID"]     = adapter.KafkaConsumer.GroupId;
+                    env["KAFKA_CONSUMER_TARGET_URL"]   = targetUrl;
+                    env["KAFKA_CONSUMER_ENDPOINT"]     = $"/{adapter.KafkaConsumer.Endpoint}";
+                    env["KAFKA_CONSUMER_COUNT"]        = adapter.KafkaConsumer.ConsumerCount.ToString();
+                    env["KAFKA_PARTITION_COUNT"]       = adapter.KafkaConsumer.PartitionCount.ToString();
+                }
+
+                return adapter with { Env = env };
+            }
+
             return adapter;
         }).ToList();
     }
@@ -739,6 +772,7 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
             {
                 "redis" => BuildRedisExporter(service),
                 "postgres" => BuildPostgresExporter(service),
+                "kafka" => BuildKafkaExporter(service),
                 _ => null
             };
 
@@ -788,6 +822,17 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
             }
         };
     }
+
+    private static ExporterDefinition BuildKafkaExporter(ServiceDefinition service) =>
+        new()
+        {
+            Name = $"{service.Name}-exporter",
+            Image = "danielqsj/kafka-exporter:v1.8.0",
+            ServiceName = service.Name,
+            Technology = "kafka",
+            ExporterPort = 9308,
+            Args = [$"--kafka.server={service.Name}:{service.Port.Value}"]
+        };
 
     private static void WarnIfUnsupportedVersion(string image, string name, Version minVersion)
     {

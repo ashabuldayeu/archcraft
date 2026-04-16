@@ -45,6 +45,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RedisAdapter", "services\ad
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HttpAdapter", "services\adapters\HttpAdapter\HttpAdapter.csproj", "{8ADD1876-93BE-4900-B39D-ED37367E4D96}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KafkaAdapter", "services\adapters\KafkaAdapter\KafkaAdapter.csproj", "{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -259,6 +261,18 @@ Global
 		{8ADD1876-93BE-4900-B39D-ED37367E4D96}.Release|x64.Build.0 = Release|Any CPU
 		{8ADD1876-93BE-4900-B39D-ED37367E4D96}.Release|x86.ActiveCfg = Release|Any CPU
 		{8ADD1876-93BE-4900-B39D-ED37367E4D96}.Release|x86.Build.0 = Release|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Debug|x64.Build.0 = Debug|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Debug|x86.Build.0 = Debug|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Release|x64.ActiveCfg = Release|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Release|x64.Build.0 = Release|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Release|x86.ActiveCfg = Release|Any CPU
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -282,5 +296,6 @@ Global
 		{FA37D450-53F7-4EA0-B7F6-ECBD43583067} = {E663F5D1-B503-551F-3C82-302565ACD380}
 		{B84B3018-B659-4AAC-869D-13A6A72B8047} = {E663F5D1-B503-551F-3C82-302565ACD380}
 		{8ADD1876-93BE-4900-B39D-ED37367E4D96} = {E663F5D1-B503-551F-3C82-302565ACD380}
+		{5BC49B19-032A-4B92-BED6-C6F3ADB55D77} = {E663F5D1-B503-551F-3C82-302565ACD380}
 	EndGlobalSection
 EndGlobal

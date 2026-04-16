@@ -25,6 +25,27 @@ services:
       POSTGRESQL_PASSWORD: secret
       POSTGRESQL_MAX_CONNECTIONS: "200"
 
+  - name: kafka
+    image: confluentinc/cp-kafka:7.6.0
+    port: 9092
+    readiness:
+      tcp_port: 9092
+      timeout: 60s
+    env:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
 # ── Synthetic-сервисы ────────────────────────────────────────────────────────
 
   - name: backend
@@ -39,6 +60,7 @@ services:
       adapters:
         - redis-adapter           # → redis-adapter-0, redis-adapter-1, redis-adapter-2
         - pg-adapter              # → pg-adapter-0, pg-adapter-1, pg-adapter-2
+        - kafka-adapter           # → kafka-adapter-0, kafka-adapter-1, kafka-adapter-2
       endpoints:
         - alias: process
           pipeline:
@@ -46,6 +68,10 @@ services:
               not_found_rate: 0.5
               fallback:
                 - operation: pg-call
+            - operation: kafka-push   # публикуем событие после записи
+        - alias: consume              # вызывается kafka-консьюмером при получении сообщения
+          pipeline:
+            - operation: pg-call
 
   - name: frontend
     image: archcraft/synthetic:latest
@@ -89,6 +115,17 @@ adapters:
     technology: http
     connects_to: backend
 
+  - name: kafka-adapter
+    image: archcraft/kafka-adapter:latest
+    port: 8080
+    technology: kafka
+    connects_to: kafka
+    consumer:
+      group_id: test-project-consumers
+      endpoint: consume
+      consumers: 3
+      partitions: 10
+
 # ── Связи между сервисами ────────────────────────────────────────────────────
 
 connections:
@@ -110,6 +147,12 @@ connections:
     port: 5432
     via: pg-adapter
 
+  - from: backend
+    to: kafka
+    protocol: tcp
+    port: 9092
+    via: kafka-adapter
+
 # ── Сценарии ─────────────────────────────────────────────────────────────────
 
 scenarios:
@@ -127,14 +170,14 @@ scenarios:
 
   # Базовая нагрузка — 15000 RPS × 30s
   - name: baseline
-    startup_timeout: 120s
+    startup_timeout: 20s
     timeline:
       - at: 0s
         actions:
           - type: load
             target: frontend      # DNS RR → frontend-proxy-0, frontend-proxy-1, frontend-proxy-2
             endpoint: handle
-            rps: 25000
+            rps: 5000
             duration: 120s
 
   # Деградация Redis — затрагивает redis-proxy → все реплики backend

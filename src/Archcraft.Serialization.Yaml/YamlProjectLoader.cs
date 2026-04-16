@@ -64,7 +64,14 @@ public sealed class YamlProjectLoader : IProjectLoader
             Technology = model.Technology,
             ConnectsTo = model.ConnectsTo,
             Env = model.Env ?? new Dictionary<string, string>(),
-            SeedRows = model.SeedRows
+            SeedRows = model.SeedRows,
+            KafkaConsumer = model.Consumer is null ? null : new KafkaConsumerConfig
+            {
+                GroupId = model.Consumer.GroupId,
+                Endpoint = model.Consumer.Endpoint,
+                ConsumerCount = model.Consumer.Consumers,
+                PartitionCount = model.Consumer.Partitions
+            }
         };
 
     private static ServiceDefinition MapService(ServiceModel model) =>
@@ -78,6 +85,8 @@ public sealed class YamlProjectLoader : IProjectLoader
             Readiness = model.Readiness is null ? null : new ReadinessConfig
             {
                 Path = model.Readiness.Path,
+                LogPattern = model.Readiness.LogPattern,
+                TcpPort = model.Readiness.TcpPort,
                 Timeout = Duration.Parse(model.Readiness.Timeout)
             },
             Replicas = model.Replicas < 1 ? 1 : model.Replicas,
