@@ -12,16 +12,12 @@ public sealed record AdapterDefinition
     public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
     public int SeedRows { get; init; }
 
-    /// <summary>
-    /// Kafka consumer configuration. When set, the adapter subscribes to the topic
-    /// and pushes messages to the paired synthetic service.
-    /// </summary>
     public KafkaConsumerConfig? KafkaConsumer { get; init; }
+    public RabbitMqConsumerConfig? RabbitMqConsumer { get; init; }
 
     /// <summary>
-    /// Name of the synthetic service replica this adapter is paired with.
-    /// Set by the compiler during replica expansion (e.g. "backend-0" for "kafka-adapter-0").
-    /// Used to inject KAFKA_CONSUMER_TARGET_URL and to couple kill/restore lifecycle.
+    /// Name of the synthetic service replica this adapter is paired with (set during replica expansion).
+    /// Couples kill/restore lifecycle between the adapter and its synthetic service replica.
     /// </summary>
     public string? PairedReplicaName { get; init; }
 }

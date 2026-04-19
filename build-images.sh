@@ -12,7 +12,8 @@ docker build -f synthetic/Dockerfile        -t archcraft/synthetic:latest      s
 docker build -f adapters/PgAdapter/Dockerfile    -t archcraft/pg-adapter:latest    adapters/
 docker build -f adapters/RedisAdapter/Dockerfile -t archcraft/redis-adapter:latest adapters/
 docker build -f adapters/HttpAdapter/Dockerfile  -t archcraft/http-adapter:latest  adapters/
-docker build -f adapters/KafkaAdapter/Dockerfile -t archcraft/kafka-adapter:latest adapters/
+docker build -f adapters/KafkaAdapter/Dockerfile    -t archcraft/kafka-adapter:latest    adapters/
+docker build -f adapters/RabbitMqAdapter/Dockerfile -t archcraft/rabbitmq-adapter:latest adapters/
 
 echo ""
 echo "Done. Images built:"

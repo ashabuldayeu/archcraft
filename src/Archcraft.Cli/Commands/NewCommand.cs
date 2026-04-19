@@ -21,7 +21,7 @@ public static class NewCommand
 
         Option<string> dbOpt = new("--db")
         {
-            Description = "Database at the end of the chain: postgres | redis | kafka | postgres-kafka | none"
+            Description = "Database at the end of the chain: postgres | redis | kafka | postgres-kafka | rabbitmq | postgres-rabbitmq | none"
         };
         dbOpt.DefaultValueFactory = _ => "postgres";
 
@@ -58,9 +58,10 @@ public static class NewCommand
                 return 1;
             }
 
-            if (db != "postgres" && db != "redis" && db != "kafka" && db != "postgres-kafka" && db != "none")
+            if (db != "postgres" && db != "redis" && db != "kafka" && db != "postgres-kafka"
+                && db != "rabbitmq" && db != "postgres-rabbitmq" && db != "none")
             {
-                Console.Error.WriteLine("Error: --db must be one of: postgres, redis, kafka, postgres-kafka, none.");
+                Console.Error.WriteLine("Error: --db must be one of: postgres, redis, kafka, postgres-kafka, rabbitmq, postgres-rabbitmq, none.");
                 return 1;
             }
 

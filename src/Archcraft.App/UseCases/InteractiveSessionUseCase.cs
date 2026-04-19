@@ -289,6 +289,7 @@ public sealed class InteractiveSessionUseCase
 
     private static bool IsStateless(AdapterDefinition adapter) =>
         string.Equals(adapter.Technology, "kafka", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(adapter.Technology, "rabbitmq", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(adapter.Technology, "http", StringComparison.OrdinalIgnoreCase);
 
     private async Task<IReadOnlyList<MetricSnapshot>> HandleRunAsync(

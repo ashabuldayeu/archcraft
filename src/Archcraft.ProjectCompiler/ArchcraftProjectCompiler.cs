@@ -694,8 +694,46 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                 return adapter with { Env = env };
             }
 
+            if (adapter.Technology == "rabbitmq")
+            {
+                ServiceDefinition rmqService = lookup[resolvedTarget];
+                string amqpUrl = BuildRabbitMqUrl(resolvedTarget, rmqService);
+                string queue = adapter.Name.Contains('-')
+                    ? adapter.Name[..adapter.Name.LastIndexOf('-')]
+                    : adapter.Name;
+
+                Dictionary<string, string> env = new(adapter.Env)
+                {
+                    ["RABBITMQ_URL"]   = amqpUrl,
+                    ["RABBITMQ_QUEUE"] = queue
+                };
+
+                if (adapter.RabbitMqConsumer is not null && adapter.PairedReplicaName is not null)
+                {
+                    ServiceDefinition pairedService = services[adapter.PairedReplicaName];
+                    string targetUrl = $"http://{adapter.PairedReplicaName}:{pairedService.Port.Value}";
+
+                    env["RABBITMQ_CONSUMER_TARGET_URL"] = targetUrl;
+                    env["RABBITMQ_CONSUMER_ENDPOINT"]   = $"/{adapter.RabbitMqConsumer.Endpoint}";
+                    env["RABBITMQ_CONSUMER_COUNT"]      = adapter.RabbitMqConsumer.ConsumerCount.ToString();
+                    env["RABBITMQ_DURABLE"]             = adapter.RabbitMqConsumer.Durable.ToString().ToLowerInvariant();
+                    env["RABBITMQ_PREFETCH"]            = adapter.RabbitMqConsumer.Prefetch.ToString();
+                }
+
+                return adapter with { Env = env };
+            }
+
             return adapter;
         }).ToList();
+    }
+
+    private static string BuildRabbitMqUrl(string resolvedName, ServiceDefinition service)
+    {
+        service.Env.TryGetValue("RABBITMQ_DEFAULT_USER", out string? user);
+        service.Env.TryGetValue("RABBITMQ_DEFAULT_PASS", out string? pass);
+        user ??= "guest";
+        pass ??= "guest";
+        return $"amqp://{user}:{pass}@{resolvedName}:{service.Port.Value}/";
     }
 
     private static string BuildPgConnectionString(string resolvedName, Dictionary<string, ServiceDefinition> services)
@@ -773,6 +811,7 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
                 "redis" => BuildRedisExporter(service),
                 "postgres" => BuildPostgresExporter(service),
                 "kafka" => BuildKafkaExporter(service),
+                "rabbitmq" => BuildRabbitMqExporter(service),
                 _ => null
             };
 
@@ -833,6 +872,30 @@ public sealed class ArchcraftProjectCompiler : IProjectCompiler
             ExporterPort = 9308,
             Args = [$"--kafka.server={service.Name}:{service.Port.Value}"]
         };
+
+    private static ExporterDefinition BuildRabbitMqExporter(ServiceDefinition service)
+    {
+        service.Env.TryGetValue("RABBITMQ_DEFAULT_USER", out string? user);
+        service.Env.TryGetValue("RABBITMQ_DEFAULT_PASS", out string? pass);
+        user ??= "guest";
+        pass ??= "guest";
+
+        return new()
+        {
+            Name = $"{service.Name}-exporter",
+            Image = "kbudde/rabbitmq-exporter:v1.0.0-RC19",
+            ServiceName = service.Name,
+            Technology = "rabbitmq",
+            ExporterPort = 9419,
+            Env = new Dictionary<string, string>
+            {
+                ["RABBIT_URL"]      = $"http://{service.Name}:15672",
+                ["RABBIT_USER"]     = user,
+                ["RABBIT_PASSWORD"] = pass,
+                ["RABBIT_EXPORTERS"] = "connections,exchange,node,queue"
+            }
+        };
+    }
 
     private static void WarnIfUnsupportedVersion(string image, string name, Version minVersion)
     {

@@ -42,6 +42,8 @@ public sealed class DashboardGenerator
                 WriteDashboard(dashboardsDir, "Dashboards.postgres.dashboard.json", exporter.ServiceName, $"postgres-{exporter.ServiceName}.json");
             else if (exporter.Technology == "kafka")
                 WriteDashboard(dashboardsDir, "Dashboards.kafka.dashboard.json", exporter.ServiceName, $"kafka-{exporter.ServiceName}.json");
+            else if (exporter.Technology == "rabbitmq")
+                WriteDashboard(dashboardsDir, "Dashboards.rabbitmq.dashboard.json", exporter.ServiceName, $"rabbitmq-{exporter.ServiceName}.json");
         }
 
         // Project-wide overview dashboard
@@ -154,6 +156,16 @@ public sealed class DashboardGenerator
 
                     panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Messages Produced / sec", "msgps", 12, 12, y,
                         $"sum(rate(kafka_topic_partition_current_offset{{job=\\\"{job}\\\", topic!~\\\"__.*\\\"}}[1m]))", "msg/s"));
+
+                    y += 8;
+                }
+                else if (exporter.Technology == "rabbitmq")
+                {
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Messages Ready", "short", 12, 0, y,
+                        $"sum(rabbitmq_queue_messages_ready{{job=\\\"{job}\\\"}})", "ready"));
+
+                    panels.Add(OverviewPanel(panelId++, $"{exporter.ServiceName} — Deliver Rate (msg/s)", "msgps", 12, 12, y,
+                        $"sum(rate(rabbitmq_queue_messages_delivered_total{{job=\\\"{job}\\\"}}[1m]))", "deliver/s"));
 
                     y += 8;
                 }

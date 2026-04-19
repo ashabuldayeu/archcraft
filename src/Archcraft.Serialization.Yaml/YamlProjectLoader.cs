@@ -65,13 +65,22 @@ public sealed class YamlProjectLoader : IProjectLoader
             ConnectsTo = model.ConnectsTo,
             Env = model.Env ?? new Dictionary<string, string>(),
             SeedRows = model.SeedRows,
-            KafkaConsumer = model.Consumer is null ? null : new KafkaConsumerConfig
-            {
-                GroupId = model.Consumer.GroupId,
-                Endpoint = model.Consumer.Endpoint,
-                ConsumerCount = model.Consumer.Consumers,
-                PartitionCount = model.Consumer.Partitions
-            }
+            KafkaConsumer = model.Consumer is null || !string.Equals(model.Technology, "kafka", StringComparison.OrdinalIgnoreCase) ? null
+                : new KafkaConsumerConfig
+                {
+                    GroupId = model.Consumer.GroupId,
+                    Endpoint = model.Consumer.Endpoint,
+                    ConsumerCount = model.Consumer.Consumers,
+                    PartitionCount = model.Consumer.Partitions
+                },
+            RabbitMqConsumer = model.Consumer is null || !string.Equals(model.Technology, "rabbitmq", StringComparison.OrdinalIgnoreCase) ? null
+                : new RabbitMqConsumerConfig
+                {
+                    Endpoint = model.Consumer.Endpoint,
+                    ConsumerCount = model.Consumer.Consumers,
+                    Durable = model.Consumer.Durable,
+                    Prefetch = model.Consumer.Prefetch
+                }
         };
 
     private static ServiceDefinition MapService(ServiceModel model) =>

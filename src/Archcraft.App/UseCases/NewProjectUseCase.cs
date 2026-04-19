@@ -59,8 +59,9 @@ public sealed class NewProjectUseCase
         sb.AppendLine("services:");
 
         bool hasDb = db != "none";
-        bool hasPostgres = db is "postgres" or "postgres-kafka";
+        bool hasPostgres = db is "postgres" or "postgres-kafka" or "postgres-rabbitmq";
         bool hasKafka = db is "kafka" or "postgres-kafka";
+        bool hasRabbitMq = db is "rabbitmq" or "postgres-rabbitmq";
 
         if (hasPostgres)
         {
@@ -88,6 +89,20 @@ public sealed class NewProjectUseCase
             sb.AppendLine("    cluster:");
             sb.AppendLine("      replicas: 1");
             sb.AppendLine("      replication_password: repl_secret");
+            sb.AppendLine();
+        }
+
+        if (hasRabbitMq)
+        {
+            sb.AppendLine("  - name: rabbitmq");
+            sb.AppendLine("    image: rabbitmq:3-management");
+            sb.AppendLine("    port: 5672");
+            sb.AppendLine("    readiness:");
+            sb.AppendLine("      tcp_port: 5672");
+            sb.AppendLine("      timeout: 60s");
+            sb.AppendLine("    env:");
+            sb.AppendLine("      RABBITMQ_DEFAULT_USER: user");
+            sb.AppendLine("      RABBITMQ_DEFAULT_PASS: secret");
             sb.AppendLine();
         }
 
@@ -143,12 +158,23 @@ public sealed class NewProjectUseCase
                 sb.AppendLine("        - postgres-adapter");
                 sb.AppendLine("        - kafka-adapter");
                 sb.AppendLine("      endpoints:");
-                // Write path: pg write → kafka publish
                 sb.AppendLine("        - alias: process");
                 sb.AppendLine("          pipeline:");
                 sb.AppendLine("            - operation: pg-call");
                 sb.AppendLine("            - operation: kafka-push");
-                // Event path: kafka consumer calls this
+                sb.AppendLine("        - alias: consume");
+                sb.AppendLine("          pipeline:");
+                sb.AppendLine("            - operation: pg-call");
+            }
+            else if (isLast && db == "postgres-rabbitmq")
+            {
+                sb.AppendLine("        - postgres-adapter");
+                sb.AppendLine("        - rabbitmq-adapter");
+                sb.AppendLine("      endpoints:");
+                sb.AppendLine("        - alias: process");
+                sb.AppendLine("          pipeline:");
+                sb.AppendLine("            - operation: pg-call");
+                sb.AppendLine("            - operation: rabbitmq-push");
                 sb.AppendLine("        - alias: consume");
                 sb.AppendLine("          pipeline:");
                 sb.AppendLine("            - operation: pg-call");
@@ -159,7 +185,9 @@ public sealed class NewProjectUseCase
                 string adapterName = nextSvc is null ? "http-adapter" : $"{nextSvc}-adapter";
                 string operationName = nextSvc is null
                     ? "http-call"
-                    : nextSvc == "kafka" ? "kafka-push" : $"{nextSvc}-call";
+                    : nextSvc == "kafka" ? "kafka-push"
+                    : nextSvc == "rabbitmq" ? "rabbitmq-push"
+                    : $"{nextSvc}-call";
 
                 sb.AppendLine($"        - {adapterName}");
                 sb.AppendLine("      endpoints:");
@@ -201,8 +229,6 @@ public sealed class NewProjectUseCase
 
         if (hasKafka)
         {
-            // Consumer endpoint: for postgres-kafka call the 'consume' endpoint,
-            // for kafka-only call 'process' (the main endpoint of the last service)
             string consumerEndpoint = db == "postgres-kafka" ? "consume" : "process";
             sb.AppendLine($"  - name: kafka-adapter");
             sb.AppendLine("    image: archcraft/kafka-adapter:latest");
@@ -214,6 +240,22 @@ public sealed class NewProjectUseCase
             sb.AppendLine($"      endpoint: {consumerEndpoint}");
             sb.AppendLine($"      consumers: {replicas}");
             sb.AppendLine($"      partitions: {replicas}");
+            sb.AppendLine();
+        }
+
+        if (hasRabbitMq)
+        {
+            string consumerEndpoint = db == "postgres-rabbitmq" ? "consume" : "process";
+            sb.AppendLine($"  - name: rabbitmq-adapter");
+            sb.AppendLine("    image: archcraft/rabbitmq-adapter:latest");
+            sb.AppendLine("    port: 8080");
+            sb.AppendLine("    technology: rabbitmq");
+            sb.AppendLine("    connects_to: rabbitmq");
+            sb.AppendLine($"    consumer:");
+            sb.AppendLine($"      endpoint: {consumerEndpoint}");
+            sb.AppendLine($"      consumers: {replicas}");
+            sb.AppendLine($"      durable: true");
+            sb.AppendLine($"      prefetch: {replicas}");
             sb.AppendLine();
         }
 
@@ -276,6 +318,17 @@ public sealed class NewProjectUseCase
             sb.AppendLine("    protocol: tcp");
             sb.AppendLine("    port: 9092");
             sb.AppendLine("    via: kafka-adapter");
+            sb.AppendLine();
+        }
+
+        if (hasRabbitMq)
+        {
+            string lastSvc = syntheticNames.Last();
+            sb.AppendLine($"  - from: {lastSvc}");
+            sb.AppendLine("    to: rabbitmq");
+            sb.AppendLine("    protocol: tcp");
+            sb.AppendLine("    port: 5672");
+            sb.AppendLine("    via: rabbitmq-adapter");
             sb.AppendLine();
         }
 
